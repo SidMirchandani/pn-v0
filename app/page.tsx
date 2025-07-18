@@ -256,6 +256,11 @@ const QUICK_COMMANDS = [
 
 export default function ProductNow() {
   const [activeSection, setActiveSection] = useState("home")
+  
+  // Debug logging for section changes
+  useEffect(() => {
+    console.log(`Active section changed to: ${activeSection}`)
+  }, [activeSection])
   const [selectedAgent, setSelectedAgent] = useState<keyof typeof AGENTS>("Neura")
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState("")
@@ -1016,10 +1021,15 @@ ${okrFileContent || ""}${okrExtra ? "\nAdditional Info:\n" + okrExtra : ""}`
   }) => (
     <Button
       variant={isActive ? "default" : "ghost"}
-      className={`flex items-center gap-2 px-4 py-2 rounded-full transition-all ${
+      className={`flex items-center gap-2 px-4 py-2 rounded-full transition-all cursor-pointer ${
         isActive ? "bg-blue-600 text-white shadow-sm hover:bg-blue-700" : "hover:bg-blue-50 text-gray-700"
       }`}
-      onClick={() => setActiveSection(section)}
+      onClick={(e) => {
+        e.preventDefault()
+        e.stopPropagation()
+        console.log(`Clicking ${section}`) // Debug log
+        setActiveSection(section)
+      }}
     >
       <Icon className="w-4 h-4" />
       <span className="hidden sm:inline">{label}</span>
