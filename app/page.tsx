@@ -1,4 +1,3 @@
-
 "use client"
 
 import { useState, useRef, useEffect, useCallback } from "react"
@@ -448,7 +447,7 @@ export default function ProductNow() {
           "newText": "replacement text",
           "reason": "explanation for the change"
         }
-        
+
         You can suggest multiple edits. Always explain why each edit would improve the document.`)
       }
 
@@ -504,7 +503,7 @@ export default function ProductNow() {
             const suggestion = JSON.parse(jsonStr)
             const originalText = suggestion.originalText
             const contentIndex = viewingArtifact.content.indexOf(originalText)
-            
+
             if (contentIndex !== -1) {
               suggestions.push({
                 id: `edit_${Date.now()}_${index}`,
@@ -655,7 +654,7 @@ export default function ProductNow() {
     if (!viewingArtifact) return
 
     let newContent = viewingArtifact.content
-    
+
     if (suggestion.type === "replace" || suggestion.type === "remove") {
       newContent = newContent.substring(0, suggestion.startIndex) + 
                    (suggestion.type === "replace" ? suggestion.newText : "") +
@@ -681,14 +680,14 @@ export default function ProductNow() {
 
     let result = content
     let offset = 0
-    
+
     // Sort suggestions by start index
     const sortedSuggestions = [...editSuggestions].sort((a, b) => a.startIndex - b.startIndex)
-    
+
     sortedSuggestions.forEach(suggestion => {
       const adjustedStart = suggestion.startIndex + offset
       const adjustedEnd = suggestion.endIndex + offset
-      
+
       let replacement = ""
       if (suggestion.type === "remove") {
         replacement = `<span class="bg-red-100 text-red-800 line-through">${suggestion.originalText}</span>`
@@ -697,11 +696,11 @@ export default function ProductNow() {
       } else if (suggestion.type === "replace") {
         replacement = `<span class="bg-red-100 text-red-800 line-through">${suggestion.originalText}</span><span class="bg-green-100 text-green-800">${suggestion.newText}</span>`
       }
-      
+
       result = result.substring(0, adjustedStart) + replacement + result.substring(adjustedEnd)
       offset += replacement.length - (adjustedEnd - adjustedStart)
     })
-    
+
     return result
   }
 
@@ -824,7 +823,7 @@ export default function ProductNow() {
                     </h3>
                     <Button
                       onClick={() => setShowTemplates(true)}
-                      className="bg-gray-900 hover:bg-gray-800 flex items-center gap-2"
+                      className="bg-blue-600 hover:bg-blue-700 flex items-center gap-2"
                     >
                       <Plus className="w-4 h-4" />
                       Create Artifact
@@ -865,7 +864,7 @@ export default function ProductNow() {
                       <FileText className="w-12 h-12 text-gray-400 mx-auto mb-4" />
                       <h3 className="text-lg font-medium text-gray-900 mb-2">No artifacts yet</h3>
                       <p className="text-gray-600 mb-4">Create your first artifact using our templates</p>
-                      <Button onClick={() => setShowTemplates(true)} className="bg-gray-900 hover:bg-gray-800">
+                      <Button onClick={() => setShowTemplates(true)} className="bg-blue-600 hover:bg-blue-700">
                         Get Started
                       </Button>
                     </Card>
