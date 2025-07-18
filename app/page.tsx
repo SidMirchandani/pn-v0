@@ -1142,9 +1142,7 @@ ${okrFileContent || ""}${okrExtra ? "\nAdditional Info:\n" + okrExtra : ""}`
             </div>
             <div className="flex items-center gap-2">
               <NavButton icon={Home} label="Home" section="home" isActive={activeSection === "home"} />
-              <NavButton icon={MessageSquare} label="Chat" section="chat" isActive={activeSection === "chat"} />
-              <NavButton icon={FileText} label="Content" section="content" isActive={activeSection === "content"} />
-              <NavButton icon={Target} label="OKR" section="okr" isActive={activeSection === "okr"} />
+              <NavButton icon={FileText} label="Hub" section="hub" isActive={activeSection === "hub"} />
               <NavButton
                 icon={Layers}
                 label="Background"
@@ -1172,27 +1170,27 @@ ${okrFileContent || ""}${okrExtra ? "\nAdditional Info:\n" + okrExtra : ""}`
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mt-16">
                 {[
                   {
-                    icon: MessageSquare,
-                    title: "AI Chat",
-                    desc: "Talk to specialized AI agents",
+                    icon: FileText,
+                    title: "Content Hub",
+                    desc: "View and edit AI-generated artifacts",
                     color: "from-blue-500 to-blue-600",
                   },
                   {
-                    icon: Target,
-                    title: "OKR Generator",
-                    desc: "Create objectives and key results",
+                    icon: Layers,
+                    title: "Background",
+                    desc: "Store project context and information",
                     color: "from-indigo-500 to-indigo-600",
                   },
                   {
-                    icon: Kanban,
-                    title: "Project Board",
-                    desc: "Manage tasks and workflows",
+                    icon: Brain,
+                    title: "AI Agents",
+                    desc: "Specialized agents for different roles",
                     color: "from-purple-500 to-purple-600",
                   },
                   {
-                    icon: Layers,
-                    title: "Documentation",
-                    desc: "Store project context",
+                    icon: Sparkles,
+                    title: "Quick Actions",
+                    desc: "Streamlined workflows and commands",
                     color: "from-cyan-500 to-cyan-600",
                   },
                 ].map((item, i) => (
@@ -1201,13 +1199,11 @@ ${okrFileContent || ""}${okrExtra ? "\nAdditional Info:\n" + okrExtra : ""}`
                     className="p-6 hover:shadow-xl transition-all duration-300 border-0 bg-white/70 backdrop-blur-sm cursor-pointer group hover:scale-105"
                     onClick={() =>
                       setActiveSection(
-                        item.title.toLowerCase().includes("chat")
-                          ? "chat"
-                          : item.title.toLowerCase().includes("okr")
-                            ? "okr"
-                            : item.title.toLowerCase().includes("project")
-                              ? "chat" // Project Board might lead to a Jira-like chat interaction
-                              : "background",
+                        item.title.toLowerCase().includes("hub")
+                          ? "hub"
+                          : item.title.toLowerCase().includes("background")
+                            ? "background"
+                            : "hub", // Default to hub for agents and quick actions
                       )
                     }
                   >
@@ -1225,330 +1221,195 @@ ${okrFileContent || ""}${okrExtra ? "\nAdditional Info:\n" + okrExtra : ""}`
           </div>
         )}
 
-        {/* Chat Section */}
-        {activeSection === "chat" && (
+        {/* Hub Section */}
+        {activeSection === "hub" && (
           <ResizablePanelGroup direction="horizontal" className="h-[calc(100vh-12rem)] min-h-[500px]">
-            <ResizablePanel defaultSize={25} minSize={20} maxSize={35}>
+            <ResizablePanel defaultSize={75} minSize={50}>
               <div className="flex flex-col h-full p-4 pr-2">
-                {/* Agent Selection Bar */}
-                <Card className="p-4 bg-white/70 backdrop-blur-sm border-blue-100 mb-4">
-                  <div className="flex items-center justify-between mb-3">
-                    <h3 className="font-semibold text-gray-900">AI Agent Mode</h3>
-                  </div>
+                <div className="text-center mb-6">
+                  <h2 className="text-3xl font-bold mb-2 bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">
+                    Content Hub
+                  </h2>
+                  <p className="text-gray-600">All your AI-generated artifacts in one place</p>
+                </div>
 
-                  <div className="flex flex-col gap-4">
-                    <div className="flex gap-2">
-                      <Button
-                        variant={agentMode === "auto" ? "default" : "outline"}
-                        className={`${
-                          agentMode === "auto"
-                            ? "bg-blue-600 text-white hover:bg-blue-700"
-                            : "hover:bg-blue-50 border-blue-200"
-                        }`}
-                        onClick={() => {
-                          setAgentMode("auto")
-                          setShowAgentDropdown(false)
-                        }}
-                      >
-                        Auto
-                      </Button>
-                      <Button
-                        variant={agentMode === "custom" ? "default" : "outline"}
-                        className={`${
-                          agentMode === "custom"
-                            ? "bg-blue-600 text-white hover:bg-blue-700"
-                            : "hover:bg-blue-50 border-blue-200"
-                        }`}
-                        onClick={() => {
-                          setAgentMode("custom")
-                          setShowAgentDropdown(true)
-                        }}
-                      >
-                        Custom
-                      </Button>
-                    </div>
-
-                    {agentMode === "custom" && (
-                      <div className="relative z-50">
-                        {" "}
-                        {/* Ensure high z-index for dropdown */}
-                        <Button
-                          variant="outline"
-                          className="flex items-center gap-2 border-blue-200 hover:bg-blue-50 bg-transparent w-full justify-start"
-                          onClick={() => setShowAgentDropdown(!showAgentDropdown)}
-                        >
+                {/* Artifacts Section */}
+                <div className="mb-8">
+                  <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
+                    <Sparkles className="w-5 h-5 text-blue-600" />
+                    ARTIFACTS
+                  </h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
+                    {[
+                      { title: "Product Req", agent: "Jett", color: AGENTS.Jett.color, icon: AGENTS.Jett.icon },
+                      { title: "OKR For Invoicing", agent: "Jett", color: AGENTS.Jett.color, icon: AGENTS.Jett.icon },
+                      { title: "Legal Document", agent: "Mira", color: AGENTS.Mira.color, icon: AGENTS.Mira.icon },
+                      { title: "Team Organizer", agent: "Neura", color: AGENTS.Neura.color, icon: AGENTS.Neura.icon },
+                      { title: "Projected Survey", agent: "Jett", color: AGENTS.Jett.color, icon: AGENTS.Jett.icon },
+                    ].map((item, i) => (
+                      <Card key={i} className="p-4 hover:shadow-lg transition-all cursor-pointer border border-gray-200 bg-white">
+                        <div className="flex flex-col items-center text-center">
                           <div
-                            className="w-4 h-4 rounded-full flex items-center justify-center text-white"
-                            style={{ backgroundColor: AGENTS[selectedAgent].color }}
+                            className="w-12 h-12 rounded-lg flex items-center justify-center mb-3"
+                            style={{ backgroundColor: item.color }}
                           >
-                            {(() => {
-                              const SelectedIcon = AGENTS[selectedAgent].icon
-                              return <SelectedIcon className="w-2 h-2" />
-                            })()}
+                            <item.icon className="w-6 h-6 text-white" />
                           </div>
-                          {AGENTS[selectedAgent].name}
-                          <ChevronDown className="w-4 h-4 ml-auto" />
-                        </Button>
-                        {showAgentDropdown && (
-                          <div className="absolute top-full left-0 mt-1 w-full bg-white border border-blue-200 rounded-lg shadow-lg z-[60]">
-                            {Object.entries(AGENTS).map(([key, agent]) => (
-                              <Button
-                                key={key}
-                                variant="ghost"
-                                className="w-full justify-start p-3 hover:bg-blue-50"
-                                onClick={() => {
-                                  setSelectedAgent(key as keyof typeof AGENTS)
-                                  setShowAgentDropdown(false)
-                                }}
-                              >
-                                <div
-                                  className="w-6 h-6 rounded-full flex items-center justify-center text-white mr-3"
-                                  style={{ backgroundColor: agent.color }}
-                                >
-                                  <agent.icon className="w-3 h-3" />
-                                </div>
-                                <div className="text-left">
-                                  <div className="font-medium text-sm">{agent.name}</div>
-                                  <div className="text-xs text-gray-500">{agent.role}</div>
-                                </div>
-                              </Button>
-                            ))}
-                          </div>
-                        )}
+                          <h4 className="font-medium text-sm text-gray-900 mb-1">{item.title}</h4>
+                          <Badge
+                            variant="secondary"
+                            className="text-xs"
+                            style={{ backgroundColor: item.color + "20", color: item.color }}
+                          >
+                            {item.agent}
+                          </Badge>
+                        </div>
+                      </Card>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Integration Section */}
+                <div className="mb-8">
+                  <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
+                    <Layers className="w-5 h-5 text-blue-600" />
+                    INTEGRATION
+                  </h3>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <Card className="p-6 hover:shadow-lg transition-all cursor-pointer border border-blue-200 bg-white">
+                      <div className="flex flex-col items-center text-center">
+                        <div className="w-12 h-12 rounded-lg bg-blue-600 flex items-center justify-center mb-3">
+                          <span className="text-white font-bold text-lg">J</span>
+                        </div>
+                        <h4 className="font-medium text-sm text-gray-900 mb-1">JIRA</h4>
+                        <p className="text-xs text-blue-600">Integration</p>
                       </div>
-                    )}
+                    </Card>
+                    <Card className="p-6 hover:shadow-lg transition-all cursor-pointer border border-blue-200 bg-white">
+                      <div className="flex flex-col items-center text-center">
+                        <div className="w-12 h-12 rounded-lg bg-blue-600 flex items-center justify-center mb-3">
+                          <span className="text-white font-bold text-lg">T</span>
+                        </div>
+                        <h4 className="font-medium text-sm text-gray-900 mb-1">TRELLO</h4>
+                        <p className="text-xs text-blue-600">Integration</p>
+                      </div>
+                    </Card>
+                    <Card className="p-6 hover:shadow-lg transition-all cursor-pointer border border-gray-200 bg-gray-50">
+                      <div className="flex flex-col items-center text-center">
+                        <div className="w-12 h-12 rounded-lg bg-gray-300 flex items-center justify-center mb-3">
+                          <span className="text-gray-600 text-sm">+</span>
+                        </div>
+                        <h4 className="font-medium text-sm text-gray-500 mb-1">More</h4>
+                        <p className="text-xs text-gray-400">Coming Soon!</p>
+                      </div>
+                    </Card>
                   </div>
+                </div>
 
-                  <div className="mt-3 p-3 bg-blue-50 rounded-lg">
-                    <p className="text-sm text-blue-700">
-                      {agentMode === "auto" ? (
-                        <>
-                          <strong>Auto Mode:</strong> AI will automatically select the best agent based on your message
-                        </>
-                      ) : (
-                        <>
-                          <strong>{AGENTS[selectedAgent].name}:</strong> {AGENTS[selectedAgent].description}
-                        </>
-                      )}
-                    </p>
+                {/* Quick Access Section */}
+                <div>
+                  <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
+                    <Zap className="w-5 h-5 text-blue-600" />
+                    Quick Access
+                  </h3>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                    {[
+                      "Previous Chats",
+                      "Background Context", 
+                      "Permissions",
+                      "Instructions"
+                    ].map((item, i) => (
+                      <Button
+                        key={i}
+                        variant="outline"
+                        className="h-auto p-3 text-sm border-blue-200 hover:bg-blue-50"
+                      >
+                        {item}
+                      </Button>
+                    ))}
                   </div>
-                </Card>
-
-                {/* Quick Commands Helper */}
-                <Card className="p-4 bg-white/70 backdrop-blur-sm border-blue-100 flex-1 flex flex-col">
-                  <h4 className="font-semibold text-blue-900 mb-3 flex items-center gap-2">
-                    <Zap className="w-4 h-4" />
-                    Quick Commands for {AGENTS[selectedAgent].name}
-                  </h4>
-                  <ScrollArea className="flex-1 -mr-2 pr-2">
-                    {" "}
-                    {/* Negative margin and padding for custom scrollbar */}
-                    <div className="grid grid-cols-1 gap-2">
-                      {QUICK_COMMANDS.filter((cmd) => cmd.agent === selectedAgent).map((cmd, i) => (
-                        <Button
-                          key={i}
-                          variant="ghost"
-                          className="justify-start h-auto p-2 text-left hover:bg-blue-100"
-                          onClick={() => setInput(cmd.example)}
-                        >
-                          <div>
-                            <div className="font-medium text-sm text-blue-800">{cmd.command}</div>
-                            <div className="text-xs text-blue-600">{cmd.description}</div>
-                          </div>
-                        </Button>
-                      ))}
-                    </div>
-                  </ScrollArea>
-                </Card>
+                </div>
               </div>
             </ResizablePanel>
 
             <ResizableHandle />
 
-            <ResizablePanel defaultSize={75} minSize={40}>
+            <ResizablePanel defaultSize={25} minSize={20} maxSize={40}>
               <div className="flex flex-col h-full p-4 pl-2">
                 <Card className="bg-white/70 backdrop-blur-sm border-blue-100 overflow-hidden flex-1 flex flex-col">
-                  {/* Chat Messages */}
-                  <ScrollArea className="flex-1 p-6">
-                    {messages.length === 0 ? (
-                      <div className="text-center py-20">
-                        <div className="w-16 h-16 bg-gradient-to-r from-blue-500 to-indigo-500 rounded-full flex items-center justify-center mx-auto mb-4">
-                          <MessageSquare className="w-8 h-8 text-white" />
-                        </div>
-                        <p className="text-gray-500 mb-4">Start a conversation with {AGENTS[selectedAgent].name}</p>
-                        <p className="text-sm text-gray-400">
-                          Try asking about product strategy, roadmaps, or Jira workflows
-                        </p>
+                  {/* Agent Chat Header */}
+                  <div className="p-4 border-b border-blue-100 bg-white/50">
+                    <h3 className="font-semibold text-blue-900 mb-2 flex items-center gap-2">
+                      <Brain className="w-4 h-4" />
+                      PN Agents
+                    </h3>
+                    <div className="flex items-center gap-3 p-3 bg-blue-50 rounded-lg">
+                      <div
+                        className="w-8 h-8 rounded-full flex items-center justify-center text-white"
+                        style={{ backgroundColor: AGENTS.Neura.color }}
+                      >
+                        <AGENTS.Neura.icon className="w-4 h-4" />
                       </div>
-                    ) : (
-                      <div>{messages.map(renderMessage)}</div>
-                    )}
-                    {isLoading && (
-                      <div className="flex gap-3 mb-6 ml-4">
-                        {(() => {
-                          const SelectedIcon = AGENTS[selectedAgent].icon
-                          return (
-                            <div
-                              className="w-8 h-8 rounded-full flex items-center justify-center text-white"
-                              style={{ backgroundColor: AGENTS[selectedAgent].color }}
-                            >
-                              <SelectedIcon className="w-4 h-4" />
-                            </div>
-                          )
-                        })()}
-                        <div className="bg-gray-100 px-4 py-3 max-w-[calc(100%-4rem)]">
-                          <div className="flex gap-1">
-                            <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"></div>
-                            <div
-                              className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"
-                              style={{ animationDelay: "0.1s" }}
-                            ></div>
-                            <div
-                              className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"
-                              style={{ animationDelay: "0.2s" }}
-                            ></div>
-                          </div>
-                        </div>
+                      <div className="flex-1">
+                        <div className="text-sm font-medium text-blue-900">Neura</div>
+                        <div className="text-xs text-blue-600">Product Manager • 04:47 PM</div>
                       </div>
-                    )}
-                    <div ref={messagesEndRef} />
+                    </div>
+                  </div>
+
+                  {/* Agent Chat Messages */}
+                  <ScrollArea className="flex-1 p-4">
+                    <div className="space-y-4">
+                      <div className="bg-blue-50 p-3 rounded-lg">
+                        <p className="text-sm text-blue-900 mb-2">Hi there! I'm here to help you with:</p>
+                        <ul className="text-xs text-blue-700 space-y-1">
+                          <li>• Create an OKR from your PRD</li>
+                          <li>• Retrieve all use cases tied to [document]</li>
+                          <li>• Update [feature] from this [document]</li>
+                          <li>• Delete [feature] from all relevant documents</li>
+                        </ul>
+                      </div>
+                      
+                      <div className="text-xs text-gray-500 space-y-1">
+                        <p>... an OKR from this PRD</p>
+                        <p>... a blank document</p>
+                        <p>... a template for a legal document</p>
+                      </div>
+                      
+                      <div className="bg-blue-600 text-white p-3 rounded-lg">
+                        <p className="text-sm">Please <span className="underline">create</span> a</p>
+                      </div>
+                    </div>
                   </ScrollArea>
 
-                  {/* Chat Input */}
-                  <div className="border-t border-blue-100 p-4 bg-white/50">
+                  {/* Agent Chat Input */}
+                  <div className="p-4 border-t border-blue-100 bg-white/50">
                     <div className="relative">
                       <Textarea
-                        value={input}
-                        onChange={(e) => setInput(e.target.value)}
-                        placeholder={`Message ${AGENTS[selectedAgent].name}...`}
-                        className="min-h-[44px] max-h-32 resize-none border-blue-200 focus:ring-2 focus:ring-blue-500 focus:border-transparent pr-20 bg-white"
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter" && !e.shiftKey) {
-                            e.preventDefault()
-                            sendMessage(input, messages, false) // Pass current input and messages state
-                            setInput("") // Clear input immediately
-                          }
-                        }}
+                        placeholder="Message Neura..."
+                        className="min-h-[40px] max-h-24 resize-none border-blue-200 focus:ring-2 focus:ring-blue-500 focus:border-transparent pr-12 bg-white text-sm"
                       />
                       <div className="absolute right-2 bottom-2 flex items-center gap-1">
                         <Button
                           variant="ghost"
                           size="sm"
-                          className="h-8 w-8 p-0 hover:bg-blue-100"
-                          onClick={() => chatFileInputRef.current?.click()}
+                          className="h-6 w-6 p-0 hover:bg-blue-100"
                         >
-                          <Paperclip className="w-4 h-4 text-gray-500" />
+                          <Paperclip className="w-3 h-3 text-gray-500" />
                         </Button>
                         <Button
-                          onClick={() => {
-                            sendMessage(input, messages, false) // Pass current input and messages state
-                            setInput("") // Clear input immediately
-                          }}
-                          disabled={!input.trim() || isLoading}
                           size="sm"
-                          className="h-8 w-8 p-0 bg-blue-600 hover:bg-blue-700 rounded-lg"
+                          className="h-6 w-6 p-0 bg-blue-600 hover:bg-blue-700 rounded"
                         >
-                          {isLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+                          <Send className="w-3 h-3" />
                         </Button>
                       </div>
-                      <input
-                        ref={chatFileInputRef}
-                        type="file"
-                        accept=".pdf,.txt"
-                        className="hidden"
-                        onChange={(e) => {
-                          const file = e.target.files?.[0]
-                          if (file) handleFileUpload(file, "chat")
-                        }}
-                      />
                     </div>
                   </div>
                 </Card>
               </div>
             </ResizablePanel>
           </ResizablePanelGroup>
-        )}
-
-        {/* OKR Section */}
-        {activeSection === "okr" && (
-          <div className="max-w-4xl mx-auto space-y-6">
-            <div className="text-center mb-8">
-              <h2 className="text-3xl font-bold mb-2 bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">
-                OKR Generator
-              </h2>
-              <p className="text-gray-600">Generate objectives and key results for your product</p>
-            </div>
-
-            <Card className="p-6 border-0 bg-white/70 backdrop-blur-sm border-blue-100">
-              <div className="space-y-4">
-                <div>
-                  <Label className="text-sm font-medium mb-2 block">Attach a PRD or Context</Label>
-                  <div className="flex items-center gap-3">
-                    <Button
-                      variant="outline"
-                      className="bg-white border-blue-200 hover:bg-blue-50"
-                      onClick={() => fileInputRef.current?.click()}
-                    >
-                      <Upload className="w-4 h-4 mr-2" />
-                      Choose File
-                    </Button>
-                    {okrFileName && <span className="text-sm text-gray-600">{okrFileName}</span>}
-                  </div>
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    accept=".pdf,.txt"
-                    className="hidden"
-                    onChange={(e) => {
-                      const file = e.target.files?.[0]
-                      if (file) handleFileUpload(file, "okr")
-                    }}
-                  />
-                </div>
-                <div>
-                  <Label className="text-sm font-medium mb-2 block">Additional Context</Label>
-                  <Textarea
-                    value={okrExtra}
-                    onChange={(e) => setOkrExtra(e.target.value)}
-                    placeholder="Add any extra information or context..."
-                    className="min-h-[100px] border-blue-200 focus:ring-blue-500"
-                  />
-                </div>
-                <Button onClick={generateOKR} disabled={isLoading} className="w-full bg-blue-600 hover:bg-blue-700">
-                  {isLoading ? (
-                    <>
-                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                      Generating...
-                    </>
-                  ) : (
-                    "Generate OKR"
-                  )}
-                </Button>
-              </div>
-            </Card>
-
-            {okrContent && (
-              <Card className="p-6 border-0 bg-white/70 backdrop-blur-sm border-blue-100">
-                <div className="flex items-center justify-between mb-4">
-                  <h3 className="font-semibold">Generated OKR</h3>
-                  <div className="flex gap-2">
-                    <Button variant="ghost" size="sm" onClick={() => setOkrContent(okrContent)}>
-                      <Edit3 className="w-4 h-4" />
-                    </Button>
-                    <Button variant="ghost" size="sm" onClick={() => navigator.clipboard.writeText(okrContent)}>
-                      <Copy className="w-4 h-4" />
-                    </Button>
-                    <Button variant="ghost" size="sm" onClick={generateOKR}>
-                      <RotateCcw className="w-4 h-4" />
-                    </Button>
-                  </div>
-                </div>
-                <div className="prose prose-sm max-w-none">
-                  <ReactMarkdown>{okrContent}</ReactMarkdown>
-                </div>
-              </Card>
-            )}
-          </div>
         )}
 
         {/* Background Section */}
@@ -1627,21 +1488,7 @@ ${okrFileContent || ""}${okrExtra ? "\nAdditional Info:\n" + okrExtra : ""}`
             )}
           </div>
         )}
-         {/* Content Section */}
-         {activeSection === "content" && (
-          <div className="max-w-5xl mx-auto space-y-6">
-            <div className="text-center mb-8">
-              <h2 className="text-3xl font-bold mb-2 bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">
-                Content Hub
-              </h2>
-              <p className="text-gray-600">
-                All AI-generated artifacts in one place—view, edit, and collaborate.
-              </p>
-            </div>
-            {/* Placeholder for Content List and Viewing/Editing */}
-            <p>Content list and viewing/editing UI will go here.</p>
-          </div>
-        )}
+         
 
       </main>
 
