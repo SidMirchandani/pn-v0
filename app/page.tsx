@@ -925,7 +925,7 @@ export default function ProductNow() {
                     {TEMPLATES.slice(0, 6).map((template) => (
                       <Card
                         key={template.id}
-                        className="p-4 hover:shadow-lg transition-all cursor-pointer border-gray-200 hover:border-gray-300"
+                        className="p-4 hover:shadow-lg transition-all cursor-pointer border-gray-200 hover:border-blue-300"
                         onClick={() => createArtifactFromTemplate(template)}
                       >
                         <div className="flex items-center gap-3">
@@ -1212,7 +1212,7 @@ export default function ProductNow() {
                       size="sm"
                       onClick={() => sendMessage(artifactInput)}
                       disabled={!artifactInput.trim() || isArtifactLoading}
-                      className="absolute right-2 bottom-2 h-8 w-8 p-0 bg-gray-900 hover:bg-gray-800 rounded"
+                      className="absolute right-2 bottom-2 h-8 w-8 p-0 bg-blue-600 hover:bg-blue-700 rounded"
                     >
                       <Send className="w-3 h-3" />
                     </Button>
@@ -1255,7 +1255,7 @@ export default function ProductNow() {
                 {filteredTemplates.map((template) => (
                   <Card
                     key={template.id}
-                    className="p-4 hover:shadow-lg transition-all cursor-pointer border-gray-200 hover:border-gray-300"
+                    className="p-4 hover:shadow-lg transition-all cursor-pointer border-gray-200 hover:border-blue-300"
                     onClick={() => createArtifactFromTemplate(template)}
                   >
                     <div className="flex items-start gap-3">
