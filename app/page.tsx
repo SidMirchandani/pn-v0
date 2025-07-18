@@ -866,8 +866,8 @@ export default function ProductNow() {
               </div>
               <div className="flex items-center gap-2">
                 <NavButton icon={Home} label="Home" section="home" isActive={activeSection === "home"} />
-                <NavButton icon={FileText} label="Hub" section="hub" isActive={activeSection === "hub"} />
                 <NavButton icon={Layers} label="Background" section="background" isActive={activeSection === "background"} />
+                <NavButton icon={FileText} label="Hub" section="hub" isActive={activeSection === "hub"} />
               </div>
             </div>
           </div>
@@ -888,8 +888,8 @@ export default function ProductNow() {
                   </p>
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mt-16">
                     {[
-                      { icon: FileText, title: "Content Hub", desc: "View and edit AI-generated artifacts", section: "hub" },
                       { icon: Layers, title: "Background", desc: "Store project context", section: "background" },
+                      { icon: FileText, title: "Content Hub", desc: "View and edit AI-generated artifacts", section: "hub" },
                       { icon: Brain, title: "AI Templates", desc: "Generate documents from templates", section: "hub" },
                     ].map((item, i) => (
                       <Card
