@@ -59,6 +59,17 @@ interface Message {
   attachedFile?: { name: string; url: string; type: string } // New field for attached file info
 }
 
+interface SavedContent {
+  id: string
+  title: string
+  content: string
+  type: "roadmap" | "okr" | "persona" | "plan" | "timeline" | "other" // Define content types
+  agent: keyof typeof AGENTS
+  createdAt: Date
+  updatedAt: Date
+  tags: string[]
+}
+
 const AGENTS = {
   Neura: {
     name: "Neura",
@@ -271,6 +282,9 @@ export default function ProductNow() {
   } | null>(null)
   const [documentPopup, setDocumentPopup] = useState<{ open: boolean; title: string; content: string } | null>(null)
   const [messageEditHistory, setMessageEditHistory] = useState<{ [key: number]: string[] }>({})
+  const [savedContent, setSavedContent] = useState<SavedContent[]>([])
+  const [viewingContent, setViewingContent] = useState<SavedContent | null>(null)
+  const [editingContent, setEditingContent] = useState<{ id: string; content: string } | null>(null)
   const [currentEditIndex, setCurrentEditIndex] = useState<{ [key: number]: number }>({})
   const [copiedMessageIndex, setCopiedMessageIndex] = useState<number | null>(null)
   const [agentMode, setAgentMode] = useState<"auto" | "custom">("auto")
@@ -556,7 +570,7 @@ This document outlines the requirements for the **Async Voice Notes** feature.
     }
   }
 
-  const sendMessage = async (messageContent: string, historyContext: Message[], isResend = false) => {
+  const sendMessage = async (messageContent: string, historyContext: Message[], isResend = false, contentType?: SavedContent['type']) => {
     if (!messageContent.trim() || isLoading) return
 
     let currentAgentForAPI = selectedAgent // The agent whose persona the AI should adopt for this response
@@ -711,9 +725,45 @@ ${okrFileContent || ""}${okrExtra ? "\nAdditional Info:\n" + okrExtra : ""}`
       file: backgroundFileContent,
       text: backgroundText,
     })
-    setTimeout(() => {
-      alert("Background saved!")
-    }, 100)
+    // Here you could also save to localStorage or send to a backend
+    alert("Background information saved!")
+  }
+
+  const saveContentFromMessage = (message: Message, customTitle?: string) => {
+    const content = typeof message.parts[0] === 'string' ? message.parts[0] : message.parts[0].text
+    const newContent: SavedContent = {
+      id: Date.now().toString(),
+      title: customTitle || `Content from ${AGENTS[message.agent || 'Neura'].name}`,
+      content,
+      type: "other",
+      agent: message.agent || 'Neura',
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      tags: [AGENTS[message.agent || 'Neura'].name.toLowerCase()]
+    }
+    setSavedContent(prev => [newContent, ...prev])
+    return newContent
+  }
+
+  const updateSavedContent = (id: string, updates: Partial<SavedContent>) => {
+    setSavedContent(prev => prev.map(item => 
+      item.id === id ? { ...item, ...updates, updatedAt: new Date() } : item
+    ))
+  }
+
+  const deleteSavedContent = (id: string) => {
+    setSavedContent(prev => prev.filter(item => item.id !== id))
+    if (viewingContent?.id === id) {
+      setViewingContent(null)
+    }
+  }
+
+  const executeQuickCommand = async (command: keyof typeof QUICK_COMMANDS) => {
+    const quickCmd = QUICK_COMMANDS[command]
+    setInput(quickCmd.example)
+    setActiveSection("chat")
+    // Auto-send the message
+    await sendMessage(quickCmd.example, [], false)
   }
 
   const parseAgentResponse = (text: string) => {
@@ -1083,9 +1133,10 @@ ${okrFileContent || ""}${okrExtra ? "\nAdditional Info:\n" + okrExtra : ""}`
             <div className="flex items-center gap-2">
               <NavButton icon={Home} label="Home" section="home" isActive={activeSection === "home"} />
               <NavButton icon={MessageSquare} label="Chat" section="chat" isActive={activeSection === "chat"} />
+              <NavButton icon={FileText} label="Content" section="content" isActive={activeSection === "content"} />
               <NavButton icon={Target} label="OKR" section="okr" isActive={activeSection === "okr"} />
               <NavButton
-                icon={FileText}
+                icon={Layers}
                 label="Background"
                 section="background"
                 isActive={activeSection === "background"}
@@ -1129,7 +1180,7 @@ ${okrFileContent || ""}${okrExtra ? "\nAdditional Info:\n" + okrExtra : ""}`
                     color: "from-purple-500 to-purple-600",
                   },
                   {
-                    icon: FileText,
+                    icon: Layers,
                     title: "Documentation",
                     desc: "Store project context",
                     color: "from-cyan-500 to-cyan-600",
@@ -1566,6 +1617,22 @@ ${okrFileContent || ""}${okrExtra ? "\nAdditional Info:\n" + okrExtra : ""}`
             )}
           </div>
         )}
+         {/* Content Section */}
+         {activeSection === "content" && (
+          <div className="max-w-5xl mx-auto space-y-6">
+            <div className="text-center mb-8">
+              <h2 className="text-3xl font-bold mb-2 bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">
+                Content Hub
+              </h2>
+              <p className="text-gray-600">
+                All AI-generated artifacts in one place—view, edit, and collaborate.
+              </p>
+            </div>
+            {/* Placeholder for Content List and Viewing/Editing */}
+            <p>Content list and viewing/editing UI will go here.</p>
+          </div>
+        )}
+
       </main>
 
       {/* Message Edit Modal */}
