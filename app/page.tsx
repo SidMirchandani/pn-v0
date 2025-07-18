@@ -371,6 +371,8 @@ export default function ProductNow() {
   const [artifactMessages, setArtifactMessages] = useState<Message[]>([])
   const [artifactInput, setArtifactInput] = useState("")
   const [isArtifactLoading, setIsArtifactLoading] = useState(false)
+  const [isGeneratingArtifact, setIsGeneratingArtifact] = useState(false)
+  const [generatingArtifactType, setGeneratingArtifactType] = useState<string | null>(null)
 
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const artifactMessagesEndRef = useRef<HTMLDivElement>(null)
@@ -584,8 +586,24 @@ export default function ProductNow() {
       return
     }
 
-    setIsLoading(true)
+    setIsGeneratingArtifact(true)
+    setGeneratingArtifactType(template.name)
     setShowTemplates(false)
+
+    // Create a placeholder artifact while generating
+    const placeholderArtifact: Artifact = {
+      id: `generating_${Date.now()}`,
+      title: `${template.name} - ${new Date().toLocaleDateString()}`,
+      content: template.content,
+      type: template.type,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      tags: [template.type],
+    }
+
+    setArtifacts((prev) => [placeholderArtifact, ...prev])
+    setViewingArtifact(placeholderArtifact)
+    setActiveSection("hub")
 
     const prompt = `Create a ${template.name} based on the background information provided. Use the template structure but fill it with relevant, specific content based on the context. Make it comprehensive and actionable.`
 
@@ -626,14 +644,20 @@ export default function ProductNow() {
         tags: [template.type],
       }
 
-      setArtifacts((prev) => [newArtifact, ...prev])
+      // Replace the placeholder with the generated artifact
+      setArtifacts((prev) => prev.map(artifact => 
+        artifact.id === placeholderArtifact.id ? newArtifact : artifact
+      ))
       setViewingArtifact(newArtifact)
-      setActiveSection("hub")
     } catch (error) {
       console.error("Error creating artifact:", error)
       alert("Error creating artifact. Please try again.")
+      // Remove the placeholder on error
+      setArtifacts((prev) => prev.filter(artifact => artifact.id !== placeholderArtifact.id))
+      setViewingArtifact(null)
     } finally {
-      setIsLoading(false)
+      setIsGeneratingArtifact(false)
+      setGeneratingArtifactType(null)
     }
   }
 
@@ -835,23 +859,43 @@ export default function ProductNow() {
                       {artifacts.map((artifact) => {
                         const template = TEMPLATES.find(t => t.type === artifact.type)
                         const IconComponent = template?.icon || FileText
+                        const isGenerating = artifact.id.startsWith('generating_')
                         return (
                           <Card
                             key={artifact.id}
-                            className="p-4 hover:shadow-lg transition-all cursor-pointer border-gray-200 hover:border-gray-300"
-                            onClick={() => setViewingArtifact(artifact)}
+                            className={`p-4 transition-all cursor-pointer border-gray-200 ${
+                              isGenerating 
+                                ? 'opacity-60 border-dashed border-blue-300 bg-blue-50' 
+                                : 'hover:shadow-lg hover:border-gray-300'
+                            }`}
+                            onClick={() => !isGenerating && setViewingArtifact(artifact)}
                           >
                             <div className="flex flex-col">
                               <div className="flex items-center gap-3 mb-3">
-                                <div className="w-10 h-10 rounded-lg bg-gray-900 flex items-center justify-center">
-                                  <IconComponent className="w-5 h-5 text-white" />
+                                <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${
+                                  isGenerating ? 'bg-blue-600' : 'bg-gray-900'
+                                }`}>
+                                  {isGenerating ? (
+                                    <Loader2 className="w-5 h-5 text-white animate-spin" />
+                                  ) : (
+                                    <IconComponent className="w-5 h-5 text-white" />
+                                  )}
                                 </div>
                                 <div className="flex-1 min-w-0">
-                                  <h4 className="font-medium text-sm text-gray-900 truncate">{artifact.title}</h4>
-                                  <p className="text-xs text-gray-500">{artifact.createdAt.toLocaleDateString()}</p>
+                                  <h4 className="font-medium text-sm text-gray-900 truncate">
+                                    {isGenerating ? `Generating ${artifact.type.toUpperCase()}...` : artifact.title}
+                                  </h4>
+                                  <p className="text-xs text-gray-500">
+                                    {isGenerating ? 'Please wait...' : artifact.createdAt.toLocaleDateString()}
+                                  </p>
                                 </div>
                               </div>
-                              <Badge variant="secondary" className="text-xs self-start bg-gray-100 text-gray-700">
+                              <Badge 
+                                variant="secondary" 
+                                className={`text-xs self-start ${
+                                  isGenerating ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-700'
+                                }`}
+                              >
                                 {artifact.type.toUpperCase()}
                               </Badge>
                             </div>
@@ -908,31 +952,48 @@ export default function ProductNow() {
                     variant="ghost"
                     onClick={() => setViewingArtifact(null)}
                     className="flex items-center gap-2"
+                    disabled={isGeneratingArtifact}
                   >
                     <ChevronLeft className="w-4 h-4" />
                     Back to Hub
                   </Button>
                   <div className="flex items-center gap-2">
+                    {isGeneratingArtifact && (
+                      <div className="flex items-center gap-2 text-blue-600">
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        <span className="text-sm font-medium">Generating...</span>
+                      </div>
+                    )}
                     <Badge variant="secondary" className="bg-gray-100 text-gray-700">
                       {viewingArtifact.type.toUpperCase()}
                     </Badge>
-                    <Button variant="outline" size="sm">
+                    <Button variant="outline" size="sm" disabled={isGeneratingArtifact}>
                       <Save className="w-4 h-4 mr-2" />
                       Export
                     </Button>
                   </div>
                 </div>
 
-                <Card className="flex-1 p-6 overflow-hidden">
+                <Card className={`flex-1 p-6 overflow-hidden transition-all duration-300 ${isGeneratingArtifact ? 'opacity-60 pointer-events-none' : ''}`}>
                   <div className="mb-4">
                     <Input
                       value={viewingArtifact.title}
                       onChange={(e) => updateArtifact({ title: e.target.value })}
                       className="text-xl font-semibold border-none px-0 focus:ring-0"
+                      disabled={isGeneratingArtifact}
                     />
                     <p className="text-sm text-gray-500 mt-1">
-                      Created: {viewingArtifact.createdAt.toLocaleDateString()} • 
-                      Updated: {viewingArtifact.updatedAt.toLocaleDateString()}
+                      {isGeneratingArtifact ? (
+                        <span className="flex items-center gap-1">
+                          <Loader2 className="w-3 h-3 animate-spin" />
+                          Generating {generatingArtifactType}...
+                        </span>
+                      ) : (
+                        <>
+                          Created: {viewingArtifact.createdAt.toLocaleDateString()} • 
+                          Updated: {viewingArtifact.updatedAt.toLocaleDateString()}
+                        </>
+                      )}
                     </p>
                   </div>
 
@@ -980,10 +1041,20 @@ export default function ProductNow() {
 
                   <ScrollArea className="h-[calc(100%-8rem)]">
                     <div className="prose prose-sm max-w-none">
-                      <div
-                        className="min-h-[400px] whitespace-pre-wrap font-mono text-sm p-4 bg-gray-50 rounded-lg"
-                        dangerouslySetInnerHTML={{ __html: renderContentWithSuggestions(viewingArtifact.content) }}
-                      />
+                      {isGeneratingArtifact ? (
+                        <div className="min-h-[400px] p-4 bg-gray-50 rounded-lg border-2 border-dashed border-gray-300 flex flex-col items-center justify-center">
+                          <Loader2 className="w-8 h-8 animate-spin text-blue-600 mb-4" />
+                          <h3 className="text-lg font-medium text-gray-900 mb-2">Generating {generatingArtifactType}</h3>
+                          <p className="text-sm text-gray-600 text-center max-w-md">
+                            Neura is analyzing your background information and creating a comprehensive {generatingArtifactType?.toLowerCase()} tailored to your needs.
+                          </p>
+                        </div>
+                      ) : (
+                        <div
+                          className="min-h-[400px] whitespace-pre-wrap font-mono text-sm p-4 bg-gray-50 rounded-lg"
+                          dangerouslySetInnerHTML={{ __html: renderContentWithSuggestions(viewingArtifact.content) }}
+                        />
+                      )}
                     </div>
                   </ScrollArea>
                 </Card>
