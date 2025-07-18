@@ -1,3 +1,4 @@
+
 "use client"
 
 import { useState, useRef, useEffect, useCallback } from "react"
@@ -30,6 +31,7 @@ import {
   ChevronLeft,
   ChevronRight,
   ChevronDown,
+  ChevronUp,
   Plus,
   Search,
   Clock,
@@ -38,6 +40,10 @@ import {
   Archive,
   ArrowRight,
   Lightbulb,
+  Trash2,
+  Edit,
+  Minimize2,
+  Maximize2,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
@@ -94,6 +100,19 @@ interface EditSuggestion {
   originalText: string
   newText: string
   reason: string
+}
+
+interface BackgroundFile {
+  id: string
+  name: string
+  content: string
+}
+
+interface ChatSession {
+  id: string
+  title: string
+  messages: Message[]
+  timestamp: Date
 }
 
 const TEMPLATES: Template[] = [
@@ -352,15 +371,7 @@ export default function ProductNow() {
   const [activeSection, setActiveSection] = useState("home")
   const [input, setInput] = useState("")
   const [isLoading, setIsLoading] = useState(false)
-  const [backgroundInfo, setBackgroundInfo] = useState<{
-    file: string | null
-    text: string | null
-  }>({
-    file: null,
-    text: null,
-  })
-  const [backgroundFileContent, setBackgroundFileContent] = useState<string | null>(null)
-  const [backgroundFileName, setBackgroundFileName] = useState<string | null>(null)
+  const [backgroundFiles, setBackgroundFiles] = useState<BackgroundFile[]>([])
   const [backgroundText, setBackgroundText] = useState<string | null>(null)
   const [knowledgeSummary, setKnowledgeSummary] = useState<string | null>(null)
   const [artifacts, setArtifacts] = useState<Artifact[]>([])
@@ -373,6 +384,16 @@ export default function ProductNow() {
   const [isArtifactLoading, setIsArtifactLoading] = useState(false)
   const [isGeneratingArtifact, setIsGeneratingArtifact] = useState(false)
   const [generatingArtifactType, setGeneratingArtifactType] = useState<string | null>(null)
+  const [editingArtifactTitle, setEditingArtifactTitle] = useState(false)
+  const [tempTitle, setTempTitle] = useState("")
+  
+  // Floating sidebar state
+  const [floatingSidebarOpen, setFloatingSidebarOpen] = useState(false)
+  const [chatSessions, setChatSessions] = useState<ChatSession[]>([])
+  const [currentChatId, setCurrentChatId] = useState<string | null>(null)
+  
+  // Additional questions from AI
+  const [additionalQuestions, setAdditionalQuestions] = useState<{question: string, answer: string}[]>([])
 
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const artifactMessagesEndRef = useRef<HTMLDivElement>(null)
@@ -389,10 +410,23 @@ export default function ProductNow() {
 
   const getBackgroundPrompt = useCallback(() => {
     let prompt = ""
-    if (backgroundInfo.file) prompt += backgroundInfo.file + "\n"
-    if (backgroundInfo.text) prompt += backgroundInfo.text + "\n"
+    if (backgroundFiles.length > 0) {
+      prompt += "Background Files:\n"
+      backgroundFiles.forEach(file => {
+        prompt += `${file.name}:\n${file.content}\n\n`
+      })
+    }
+    if (backgroundText) prompt += "Background Text:\n" + backgroundText + "\n"
+    if (additionalQuestions.length > 0) {
+      prompt += "Additional Information:\n"
+      additionalQuestions.forEach(qa => {
+        if (qa.answer.trim()) {
+          prompt += `Q: ${qa.question}\nA: ${qa.answer}\n\n`
+        }
+      })
+    }
     return prompt.trim()
-  }, [backgroundInfo.file, backgroundInfo.text])
+  }, [backgroundFiles, backgroundText, additionalQuestions])
 
   const generateKnowledgeSummary = async () => {
     const backgroundPrompt = getBackgroundPrompt()
@@ -408,7 +442,7 @@ export default function ProductNow() {
               role: "user",
               parts: [
                 {
-                  text: `Based on the following background information, create a concise summary of "What We Know" about this project/product. Keep it under 200 words and focus on the key facts, goals, and context:\n\n${backgroundPrompt}`,
+                  text: `Based on the following background information, create a concise summary of "What We Know" about this project/product. Keep it under 200 words and focus on the key facts, goals, and context. Also, if you need any additional information to better assist with product management tasks, provide up to 3 specific questions:\n\n${backgroundPrompt}`,
                 },
               ],
             },
@@ -417,13 +451,27 @@ export default function ProductNow() {
             temperature: 0.7,
             topK: 40,
             topP: 0.95,
-            maxOutputTokens: 500,
+            maxOutputTokens: 800,
           },
         }),
       })
 
       const data = await response.json()
-      const summary = data.candidates?.[0]?.content?.parts?.[0]?.text || "No summary available"
+      const fullResponse = data.candidates?.[0]?.content?.parts?.[0]?.text || "No summary available"
+      
+      // Extract questions if any
+      const questionPattern = /ADDITIONAL_QUESTIONS?\s*:\s*(.*?)(?=\n\n|$)/s
+      const match = fullResponse.match(questionPattern)
+      
+      if (match && match[1]) {
+        const questions = match[1].split('\n').filter(q => q.trim().startsWith('-') || q.trim().match(/^\d+\./))
+          .map(q => q.replace(/^[-\d.]\s*/, '').trim())
+          .filter(q => q.length > 0)
+        
+        setAdditionalQuestions(questions.slice(0, 3).map(q => ({ question: q, answer: '' })))
+      }
+      
+      const summary = fullResponse.replace(questionPattern, '').trim()
       setKnowledgeSummary(summary)
     } catch (error) {
       console.error("Error generating knowledge summary:", error)
@@ -564,25 +612,37 @@ export default function ProductNow() {
     const reader = new FileReader()
     reader.onload = (e) => {
       const content = e.target?.result as string
-      setBackgroundFileContent(content)
-      setBackgroundFileName(file.name)
+      const newFile: BackgroundFile = {
+        id: Date.now().toString(),
+        name: file.name,
+        content: content
+      }
+      setBackgroundFiles(prev => [...prev, newFile])
     }
     reader.readAsText(file)
   }
 
+  const removeBackgroundFile = (fileId: string) => {
+    setBackgroundFiles(prev => prev.filter(f => f.id !== fileId))
+  }
+
   const saveBackground = async () => {
-    setBackgroundInfo({
-      file: backgroundFileContent,
-      text: backgroundText,
-    })
     await generateKnowledgeSummary()
-    alert("Background information saved!")
+    // Show success notification in app
+    setKnowledgeSummary(prev => prev ? prev + "\n\n✅ Background information updated successfully!" : "✅ Background information saved!")
+    setTimeout(() => {
+      setKnowledgeSummary(prev => prev?.replace("\n\n✅ Background information updated successfully!", "").replace("✅ Background information saved!", "") || null)
+    }, 3000)
   }
 
   const createArtifactFromTemplate = async (template: Template) => {
     if (!getBackgroundPrompt().trim()) {
-      alert("Please add background information first to generate meaningful content.")
+      // Show in-app notification instead of alert
+      setKnowledgeSummary("❌ Please add background information first to generate meaningful content.")
       setActiveSection("background")
+      setTimeout(() => {
+        setKnowledgeSummary(prev => prev?.replace("❌ Please add background information first to generate meaningful content.", "") || null)
+      }, 3000)
       return
     }
 
@@ -594,7 +654,7 @@ export default function ProductNow() {
     const placeholderArtifact: Artifact = {
       id: `generating_${Date.now()}`,
       title: `${template.name} - ${new Date().toLocaleDateString()}`,
-      content: template.content,
+      content: "Generating content...",
       type: template.type,
       createdAt: new Date(),
       updatedAt: new Date(),
@@ -605,7 +665,7 @@ export default function ProductNow() {
     setViewingArtifact(placeholderArtifact)
     setActiveSection("hub")
 
-    const prompt = `Create a ${template.name} based on the background information provided. Use the template structure but fill it with relevant, specific content based on the context. Make it comprehensive and actionable.`
+    const prompt = `Create a ${template.name} based on the background information provided. Fill it with relevant, specific content based on the context. Make it comprehensive and actionable.`
 
     try {
       const response = await fetch(`${API_URL}?key=${API_KEY}`, {
@@ -651,7 +711,10 @@ export default function ProductNow() {
       setViewingArtifact(newArtifact)
     } catch (error) {
       console.error("Error creating artifact:", error)
-      alert("Error creating artifact. Please try again.")
+      setKnowledgeSummary("❌ Error creating artifact. Please try again.")
+      setTimeout(() => {
+        setKnowledgeSummary(prev => prev?.replace("❌ Error creating artifact. Please try again.", "") || null)
+      }, 3000)
       // Remove the placeholder on error
       setArtifacts((prev) => prev.filter(artifact => artifact.id !== placeholderArtifact.id))
       setViewingArtifact(null)
@@ -672,6 +735,22 @@ export default function ProductNow() {
 
     setArtifacts((prev) => prev.map((artifact) => (artifact.id === viewingArtifact.id ? updatedArtifact : artifact)))
     setViewingArtifact(updatedArtifact)
+  }
+
+  const deleteArtifact = (artifactId: string) => {
+    setArtifacts((prev) => prev.filter(artifact => artifact.id !== artifactId))
+    if (viewingArtifact?.id === artifactId) {
+      setViewingArtifact(null)
+    }
+  }
+
+  const renameArtifact = (artifactId: string, newTitle: string) => {
+    setArtifacts((prev) => prev.map(artifact => 
+      artifact.id === artifactId ? { ...artifact, title: newTitle, updatedAt: new Date() } : artifact
+    ))
+    if (viewingArtifact?.id === artifactId) {
+      setViewingArtifact(prev => prev ? { ...prev, title: newTitle, updatedAt: new Date() } : prev)
+    }
   }
 
   const applyEditSuggestion = (suggestion: EditSuggestion) => {
@@ -748,8 +827,8 @@ export default function ProductNow() {
       variant={isActive ? "default" : "ghost"}
       className={`flex items-center gap-2 px-3 py-2 rounded-lg transition-all duration-200 ${
         isActive 
-          ? "bg-gray-900 text-white shadow-sm" 
-          : "hover:bg-gray-100 text-gray-700"
+          ? "bg-blue-600 text-white shadow-sm" 
+          : "hover:bg-blue-50 text-gray-700"
       }`}
       onClick={() => setActiveSection(section)}
     >
@@ -762,7 +841,7 @@ export default function ProductNow() {
     <Button
       variant="ghost"
       size="sm"
-      className="w-10 h-10 p-0 hover:bg-gray-100 group relative"
+      className="w-10 h-10 p-0 hover:bg-blue-50 group relative"
       onClick={onClick}
     >
       <Icon className="w-4 h-4 text-gray-600" />
@@ -780,7 +859,7 @@ export default function ProductNow() {
           <div className="max-w-7xl mx-auto px-6">
             <div className="flex items-center justify-between h-14">
               <div className="flex items-center gap-2">
-                <div className="w-6 h-6 bg-gray-900 rounded-md flex items-center justify-center">
+                <div className="w-6 h-6 bg-blue-600 rounded-md flex items-center justify-center">
                   <span className="text-white font-bold text-xs">PN</span>
                 </div>
                 <span className="font-semibold text-lg text-gray-900">ProductNow</span>
@@ -815,10 +894,10 @@ export default function ProductNow() {
                     ].map((item, i) => (
                       <Card
                         key={i}
-                        className="p-6 hover:shadow-lg transition-all duration-300 cursor-pointer group border-gray-200 hover:border-gray-300"
+                        className="p-6 hover:shadow-lg transition-all duration-300 cursor-pointer group border-gray-200 hover:border-blue-300"
                         onClick={() => setActiveSection(item.section)}
                       >
-                        <div className="w-12 h-12 rounded-lg bg-gray-900 flex items-center justify-center mx-auto mb-4 group-hover:scale-105 transition-transform">
+                        <div className="w-12 h-12 rounded-lg bg-blue-600 flex items-center justify-center mx-auto mb-4 group-hover:scale-105 transition-transform">
                           <item.icon className="w-6 h-6 text-white" />
                         </div>
                         <h3 className="font-semibold mb-2 text-gray-900 text-center">{item.title}</h3>
@@ -842,7 +921,7 @@ export default function ProductNow() {
                 <div className="mb-12">
                   <div className="flex items-center justify-between mb-6">
                     <h3 className="text-xl font-semibold text-gray-900 flex items-center gap-2">
-                      <Sparkles className="w-5 h-5 text-gray-700" />
+                      <Sparkles className="w-5 h-5 text-blue-600" />
                       YOUR ARTIFACTS
                     </h3>
                     <Button
@@ -863,17 +942,17 @@ export default function ProductNow() {
                         return (
                           <Card
                             key={artifact.id}
-                            className={`p-4 transition-all cursor-pointer border-gray-200 ${
+                            className={`p-4 transition-all cursor-pointer border-gray-200 group ${
                               isGenerating 
                                 ? 'opacity-60 border-dashed border-blue-300 bg-blue-50' 
-                                : 'hover:shadow-lg hover:border-gray-300'
+                                : 'hover:shadow-lg hover:border-blue-300'
                             }`}
                             onClick={() => !isGenerating && setViewingArtifact(artifact)}
                           >
                             <div className="flex flex-col">
                               <div className="flex items-center gap-3 mb-3">
                                 <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${
-                                  isGenerating ? 'bg-blue-600' : 'bg-gray-900'
+                                  isGenerating ? 'bg-blue-600' : 'bg-blue-600'
                                 }`}>
                                   {isGenerating ? (
                                     <Loader2 className="w-5 h-5 text-white animate-spin" />
@@ -889,11 +968,38 @@ export default function ProductNow() {
                                     {isGenerating ? 'Please wait...' : artifact.createdAt.toLocaleDateString()}
                                   </p>
                                 </div>
+                                {!isGenerating && (
+                                  <div className="opacity-0 group-hover:opacity-100 transition-opacity flex gap-1">
+                                    <Button
+                                      size="sm"
+                                      variant="ghost"
+                                      className="h-6 w-6 p-0"
+                                      onClick={(e) => {
+                                        e.stopPropagation()
+                                        setEditingArtifactTitle(true)
+                                        setTempTitle(artifact.title)
+                                      }}
+                                    >
+                                      <Edit className="w-3 h-3" />
+                                    </Button>
+                                    <Button
+                                      size="sm"
+                                      variant="ghost"
+                                      className="h-6 w-6 p-0 text-red-600 hover:text-red-700"
+                                      onClick={(e) => {
+                                        e.stopPropagation()
+                                        deleteArtifact(artifact.id)
+                                      }}
+                                    >
+                                      <Trash2 className="w-3 h-3" />
+                                    </Button>
+                                  </div>
+                                )}
                               </div>
                               <Badge 
                                 variant="secondary" 
                                 className={`text-xs self-start ${
-                                  isGenerating ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-700'
+                                  isGenerating ? 'bg-blue-100 text-blue-700' : 'bg-blue-100 text-blue-700'
                                 }`}
                               >
                                 {artifact.type.toUpperCase()}
@@ -918,7 +1024,7 @@ export default function ProductNow() {
                 {/* Templates Section */}
                 <div className="mb-8">
                   <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
-                    <Code className="w-5 h-5 text-gray-700" />
+                    <Code className="w-5 h-5 text-blue-600" />
                     TEMPLATES
                   </h3>
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -929,7 +1035,7 @@ export default function ProductNow() {
                         onClick={() => createArtifactFromTemplate(template)}
                       >
                         <div className="flex items-center gap-3">
-                          <div className="w-10 h-10 rounded-lg bg-gray-900 flex items-center justify-center">
+                          <div className="w-10 h-10 rounded-lg bg-blue-600 flex items-center justify-center">
                             <template.icon className="w-5 h-5 text-white" />
                           </div>
                           <div className="flex-1 min-w-0">
@@ -964,7 +1070,7 @@ export default function ProductNow() {
                         <span className="text-sm font-medium">Generating...</span>
                       </div>
                     )}
-                    <Badge variant="secondary" className="bg-gray-100 text-gray-700">
+                    <Badge variant="secondary" className="bg-blue-100 text-blue-700">
                       {viewingArtifact.type.toUpperCase()}
                     </Badge>
                     <Button variant="outline" size="sm" disabled={isGeneratingArtifact}>
@@ -1044,15 +1150,17 @@ export default function ProductNow() {
                       {isGeneratingArtifact ? (
                         <div className="min-h-[400px] p-4 bg-gray-50 rounded-lg border-2 border-dashed border-gray-300 flex flex-col items-center justify-center">
                           <Loader2 className="w-8 h-8 animate-spin text-blue-600 mb-4" />
-                          <h3 className="text-lg font-medium text-gray-900 mb-2">Generating {generatingArtifactType}</h3>
+                          <h3 className="text-lg font-medium text-gray-900 mb-2">Waiting...</h3>
                           <p className="text-sm text-gray-600 text-center max-w-md">
                             Neura is analyzing your background information and creating a comprehensive {generatingArtifactType?.toLowerCase()} tailored to your needs.
                           </p>
                         </div>
                       ) : (
-                        <div
-                          className="min-h-[400px] whitespace-pre-wrap font-mono text-sm p-4 bg-gray-50 rounded-lg"
-                          dangerouslySetInnerHTML={{ __html: renderContentWithSuggestions(viewingArtifact.content) }}
+                        <Textarea
+                          value={viewingArtifact.content}
+                          onChange={(e) => updateArtifact({ content: e.target.value })}
+                          className="min-h-[400px] border-none resize-none focus:ring-0 p-4 text-sm leading-relaxed"
+                          style={{ fontFamily: 'ui-sans-serif, system-ui, sans-serif' }}
                         />
                       )}
                     </div>
@@ -1072,26 +1180,46 @@ export default function ProductNow() {
                 <Card className="p-6 border-gray-200">
                   <div className="space-y-6">
                     <div>
-                      <Label className="text-sm font-medium mb-2 block">Upload Background File</Label>
-                      <div className="flex items-center gap-3">
+                      <Label className="text-sm font-medium mb-2 block">Upload Background Files</Label>
+                      <div className="flex items-center gap-3 mb-4">
                         <Button
                           variant="outline"
                           className="bg-white border-gray-300 hover:bg-gray-50"
                           onClick={() => backgroundFileInputRef.current?.click()}
                         >
                           <Upload className="w-4 h-4 mr-2" />
-                          Choose PDF or TXT file
+                          Choose PDF or TXT files
                         </Button>
-                        {backgroundFileName && <span className="text-sm text-gray-600">{backgroundFileName}</span>}
+                        <span className="text-sm text-gray-500">{backgroundFiles.length} files uploaded</span>
                       </div>
+                      
+                      {backgroundFiles.length > 0 && (
+                        <div className="space-y-2 mb-4">
+                          {backgroundFiles.map((file) => (
+                            <div key={file.id} className="flex items-center justify-between p-2 bg-gray-50 rounded border">
+                              <span className="text-sm text-gray-700">{file.name}</span>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => removeBackgroundFile(file.id)}
+                                className="text-red-600 hover:text-red-700"
+                              >
+                                <X className="w-4 h-4" />
+                              </Button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      
                       <input
                         ref={backgroundFileInputRef}
                         type="file"
                         accept=".pdf,.txt"
+                        multiple
                         className="hidden"
                         onChange={(e) => {
-                          const file = e.target.files?.[0]
-                          if (file) handleFileUpload(file)
+                          const files = Array.from(e.target.files || [])
+                          files.forEach(file => handleFileUpload(file))
                         }}
                       />
                     </div>
@@ -1102,11 +1230,34 @@ export default function ProductNow() {
                         value={backgroundText || ""}
                         onChange={(e) => setBackgroundText(e.target.value)}
                         placeholder="Describe your company, product, target users, business goals, or any context that will help Neura provide better assistance..."
-                        className="min-h-[200px] border-gray-300 focus:ring-gray-500 focus:border-gray-500"
+                        className="min-h-[200px] border-gray-300 focus:ring-blue-500 focus:border-blue-500"
                       />
                     </div>
 
-                    <Button onClick={saveBackground} className="w-full bg-gray-900 hover:bg-gray-800">
+                    {additionalQuestions.length > 0 && (
+                      <div>
+                        <Label className="text-sm font-medium mb-4 block">Additional Information Needed</Label>
+                        <div className="space-y-4">
+                          {additionalQuestions.map((qa, index) => (
+                            <div key={index} className="space-y-2">
+                              <Label className="text-sm text-gray-700">{qa.question}</Label>
+                              <Input
+                                value={qa.answer}
+                                onChange={(e) => {
+                                  const updated = [...additionalQuestions]
+                                  updated[index].answer = e.target.value
+                                  setAdditionalQuestions(updated)
+                                }}
+                                placeholder="Your answer..."
+                                className="border-gray-300 focus:ring-blue-500 focus:border-blue-500"
+                              />
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    <Button onClick={saveBackground} className="w-full bg-blue-600 hover:bg-blue-700">
                       Save Background Information
                     </Button>
                   </div>
@@ -1115,7 +1266,7 @@ export default function ProductNow() {
                 {knowledgeSummary && (
                   <Card className="p-6 border-gray-200">
                     <h3 className="font-semibold mb-4 text-gray-900 flex items-center gap-2">
-                      <Brain className="w-5 h-5" />
+                      <Brain className="w-5 h-5 text-blue-600" />
                       What We Know
                     </h3>
                     <div className="bg-gray-50 p-4 rounded-lg">
@@ -1135,7 +1286,7 @@ export default function ProductNow() {
               <div className="h-full flex flex-col">
                 <div className="p-4 border-b border-gray-200">
                   <h3 className="font-semibold text-gray-900 mb-1 flex items-center gap-2">
-                    <Brain className="w-4 h-4" />
+                    <Brain className="w-4 h-4 text-blue-600" />
                     Neura
                   </h3>
                   <p className="text-xs text-gray-500">AI Product Manager</p>
@@ -1144,7 +1295,7 @@ export default function ProductNow() {
                 <ScrollArea className="flex-1 p-4" style={{ maxHeight: 'calc(100vh - 200px)' }}>
                   <div className="space-y-4">
                     {artifactMessages.length === 0 && (
-                      <div className="bg-gray-50 p-3 rounded-lg">
+                      <div className="bg-blue-50 p-3 rounded-lg border border-blue-200">
                         <p className="text-sm text-gray-900 mb-2">Hi! I can help you with:</p>
                         <ul className="text-xs text-gray-700 space-y-1">
                           <li>• Suggest improvements to your content</li>
@@ -1160,11 +1311,11 @@ export default function ProductNow() {
                         <div className={`flex gap-2 ${message.role === "user" ? "flex-row-reverse" : "flex-row"}`}>
                           <div className="flex-shrink-0">
                             {message.role === "user" ? (
-                              <div className="w-6 h-6 rounded-full bg-gray-900 flex items-center justify-center">
+                              <div className="w-6 h-6 rounded-full bg-blue-600 flex items-center justify-center">
                                 <User className="w-3 h-3 text-white" />
                               </div>
                             ) : (
-                              <div className="w-6 h-6 rounded-full bg-gray-900 flex items-center justify-center">
+                              <div className="w-6 h-6 rounded-full bg-blue-600 flex items-center justify-center">
                                 <Brain className="w-3 h-3 text-white" />
                               </div>
                             )}
@@ -1172,7 +1323,7 @@ export default function ProductNow() {
                           <div className={`flex-1 ${message.role === "user" ? "text-right" : "text-left"}`}>
                             <div className={`inline-block p-2 rounded-lg text-xs max-w-full ${
                               message.role === "user" 
-                                ? "bg-gray-900 text-white" 
+                                ? "bg-blue-600 text-white" 
                                 : "bg-gray-100 text-gray-900"
                             }`}>
                               <div className="prose prose-xs max-w-none">
@@ -1200,7 +1351,7 @@ export default function ProductNow() {
                       value={artifactInput}
                       onChange={(e) => setArtifactInput(e.target.value)}
                       placeholder="Ask Neura for suggestions..."
-                      className="min-h-[60px] max-h-24 resize-none border-gray-300 focus:ring-gray-500 focus:border-gray-500 pr-12 text-sm"
+                      className="min-h-[60px] max-h-24 resize-none border-gray-300 focus:ring-blue-500 focus:border-blue-500 pr-12 text-sm"
                       onKeyDown={(e) => {
                         if (e.key === 'Enter' && !e.shiftKey) {
                           e.preventDefault()
@@ -1222,6 +1373,72 @@ export default function ProductNow() {
             </div>
           )}
         </main>
+
+        {/* Floating Sidebar - Only on Hub */}
+        {activeSection === "hub" && (
+          <div className="fixed bottom-4 right-4 z-50">
+            <div className={`bg-white border border-gray-200 rounded-lg shadow-lg transition-all duration-300 ${
+              floatingSidebarOpen ? 'w-80 h-96' : 'w-auto h-auto'
+            }`}>
+              {floatingSidebarOpen ? (
+                <div className="h-full flex flex-col">
+                  <div className="flex items-center justify-between p-3 border-b border-gray-200">
+                    <h3 className="font-medium text-sm text-gray-900">Chat History</h3>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => setFloatingSidebarOpen(false)}
+                      className="h-6 w-6 p-0"
+                    >
+                      <Minimize2 className="w-4 h-4" />
+                    </Button>
+                  </div>
+                  <ScrollArea className="flex-1 p-3">
+                    <div className="space-y-2">
+                      {chatSessions.length === 0 ? (
+                        <p className="text-xs text-gray-500 text-center py-4">No chat history yet</p>
+                      ) : (
+                        chatSessions.map((session) => (
+                          <div
+                            key={session.id}
+                            className="p-2 rounded border border-gray-100 hover:bg-gray-50 cursor-pointer"
+                            onClick={() => setCurrentChatId(session.id)}
+                          >
+                            <h4 className="text-xs font-medium text-gray-900 truncate">{session.title}</h4>
+                            <p className="text-xs text-gray-500">{session.timestamp.toLocaleDateString()}</p>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </ScrollArea>
+                  <div className="p-3 border-t border-gray-200">
+                    <div className="grid grid-cols-3 gap-2">
+                      <Button size="sm" variant="outline" className="text-xs">
+                        <Clock className="w-3 h-3 mr-1" />
+                        Recent
+                      </Button>
+                      <Button size="sm" variant="outline" className="text-xs">
+                        <Settings className="w-3 h-3 mr-1" />
+                        Settings
+                      </Button>
+                      <Button size="sm" variant="outline" className="text-xs">
+                        <HelpCircle className="w-3 h-3 mr-1" />
+                        Help
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <Button
+                  onClick={() => setFloatingSidebarOpen(true)}
+                  className="bg-blue-600 hover:bg-blue-700 rounded-full h-12 w-12 p-0"
+                >
+                  <ChevronUp className="w-5 h-5" />
+                </Button>
+              )}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Template Selection Modal */}
@@ -1230,7 +1447,7 @@ export default function ProductNow() {
           <DialogContent className="sm:max-w-[800px] h-[80vh] flex flex-col">
             <DialogHeader>
               <DialogTitle className="flex items-center gap-2">
-                <Sparkles className="w-5 h-5" />
+                <Sparkles className="w-5 h-5 text-blue-600" />
                 Choose Template
               </DialogTitle>
               <DialogDescription>
@@ -1245,7 +1462,7 @@ export default function ProductNow() {
                   value={templateSearch}
                   onChange={(e) => setTemplateSearch(e.target.value)}
                   placeholder="Search templates..."
-                  className="pl-10"
+                  className="pl-10 border-gray-300 focus:ring-blue-500 focus:border-blue-500"
                 />
               </div>
             </div>
@@ -1259,13 +1476,13 @@ export default function ProductNow() {
                     onClick={() => createArtifactFromTemplate(template)}
                   >
                     <div className="flex items-start gap-3">
-                      <div className="w-12 h-12 rounded-lg bg-gray-900 flex items-center justify-center flex-shrink-0">
+                      <div className="w-12 h-12 rounded-lg bg-blue-600 flex items-center justify-center flex-shrink-0">
                         <template.icon className="w-6 h-6 text-white" />
                       </div>
                       <div className="flex-1 min-w-0">
                         <h4 className="font-medium text-gray-900 mb-1">{template.name}</h4>
                         <p className="text-sm text-gray-600 mb-2">{template.description}</p>
-                        <Badge variant="secondary" className="text-xs bg-gray-100 text-gray-700">
+                        <Badge variant="secondary" className="text-xs bg-blue-100 text-blue-700">
                           {template.type.toUpperCase()}
                         </Badge>
                       </div>
