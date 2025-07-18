@@ -1,3 +1,4 @@
+
 "use client"
 
 import { useState, useRef, useEffect, useCallback } from "react"
@@ -36,6 +37,8 @@ import {
   Settings,
   HelpCircle,
   Archive,
+  ArrowRight,
+  Lightbulb,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
@@ -55,7 +58,7 @@ import {
 } from "@/components/ui/dialog"
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable"
 
-const API_KEY = "AIzaSyC4v647dYrneDbR2K5BJwJ4sbvq43fZtRc" // Replace with your actual API key
+const API_KEY = "AIzaSyC4v647dYrneDbR2K5BJwJ4sbvq43fZtRc"
 const API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
 
 interface Message {
@@ -82,6 +85,16 @@ interface Template {
   type: "prd" | "okr" | "roadmap" | "persona" | "wireframe" | "strategy" | "research" | "other"
   icon: any
   content: string
+}
+
+interface EditSuggestion {
+  id: string
+  type: "add" | "remove" | "replace"
+  startIndex: number
+  endIndex: number
+  originalText: string
+  newText: string
+  reason: string
 }
 
 const TEMPLATES: Template[] = [
@@ -338,7 +351,6 @@ Brief description of the product/feature
 
 export default function ProductNow() {
   const [activeSection, setActiveSection] = useState("home")
-  const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState("")
   const [isLoading, setIsLoading] = useState(false)
   const [backgroundInfo, setBackgroundInfo] = useState<{
@@ -351,12 +363,12 @@ export default function ProductNow() {
   const [backgroundFileContent, setBackgroundFileContent] = useState<string | null>(null)
   const [backgroundFileName, setBackgroundFileName] = useState<string | null>(null)
   const [backgroundText, setBackgroundText] = useState<string | null>(null)
+  const [knowledgeSummary, setKnowledgeSummary] = useState<string | null>(null)
   const [artifacts, setArtifacts] = useState<Artifact[]>([])
   const [viewingArtifact, setViewingArtifact] = useState<Artifact | null>(null)
   const [showTemplates, setShowTemplates] = useState(false)
   const [templateSearch, setTemplateSearch] = useState("")
-  const [editingSuggestion, setEditingSuggestion] = useState<string | null>(null)
-  const [pendingEdit, setPendingEdit] = useState<string | null>(null)
+  const [editSuggestions, setEditSuggestions] = useState<EditSuggestion[]>([])
   const [artifactMessages, setArtifactMessages] = useState<Message[]>([])
   const [artifactInput, setArtifactInput] = useState("")
   const [isArtifactLoading, setIsArtifactLoading] = useState(false)
@@ -365,19 +377,10 @@ export default function ProductNow() {
   const artifactMessagesEndRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const backgroundFileInputRef = useRef<HTMLInputElement>(null)
-  const chatFileInputRef = useRef<HTMLInputElement>(null)
-
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
-  }
 
   const scrollArtifactToBottom = () => {
     artifactMessagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
   }
-
-  useEffect(() => {
-    scrollToBottom()
-  }, [messages])
 
   useEffect(() => {
     scrollArtifactToBottom()
@@ -390,7 +393,43 @@ export default function ProductNow() {
     return prompt.trim()
   }, [backgroundInfo.file, backgroundInfo.text])
 
-  const sendApiRequest = async (promptText: string, messagesHistory: Message[], isArtifactChat = false) => {
+  const generateKnowledgeSummary = async () => {
+    const backgroundPrompt = getBackgroundPrompt()
+    if (!backgroundPrompt) return
+
+    try {
+      const response = await fetch(`${API_URL}?key=${API_KEY}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contents: [
+            {
+              role: "user",
+              parts: [
+                {
+                  text: `Based on the following background information, create a concise summary of "What We Know" about this project/product. Keep it under 200 words and focus on the key facts, goals, and context:\n\n${backgroundPrompt}`,
+                },
+              ],
+            },
+          ],
+          generationConfig: {
+            temperature: 0.7,
+            topK: 40,
+            topP: 0.95,
+            maxOutputTokens: 500,
+          },
+        }),
+      })
+
+      const data = await response.json()
+      const summary = data.candidates?.[0]?.content?.parts?.[0]?.text || "No summary available"
+      setKnowledgeSummary(summary)
+    } catch (error) {
+      console.error("Error generating knowledge summary:", error)
+    }
+  }
+
+  const sendApiRequest = async (promptText: string, messagesHistory: Message[]) => {
     try {
       const contextParts: string[] = []
       contextParts.push("You are Neura, a Product Manager AI assistant. Always start your responses with 'Neura: ' and focus on product management expertise.")
@@ -400,9 +439,17 @@ export default function ProductNow() {
         contextParts.push("[Background Information]\n" + backgroundPrompt)
       }
 
-      if (isArtifactChat && viewingArtifact) {
+      if (viewingArtifact) {
         contextParts.push(`[Current Artifact]\nTitle: ${viewingArtifact.title}\nContent:\n${viewingArtifact.content}`)
-        contextParts.push("When suggesting edits, provide specific suggestions that the user can approve or reject. Format suggestions clearly.")
+        contextParts.push(`When suggesting edits, respond with specific edit suggestions in this format:
+        EDIT_SUGGESTION: {
+          "type": "add|remove|replace",
+          "originalText": "exact text to be changed",
+          "newText": "replacement text",
+          "reason": "explanation for the change"
+        }
+        
+        You can suggest multiple edits. Always explain why each edit would improve the document.`)
       }
 
       const apiHistory = messagesHistory
@@ -447,17 +494,42 @@ export default function ProductNow() {
         aiResponse = "Neura: I didn't receive any content from the model. Please rephrase or try again later."
       }
 
+      // Parse edit suggestions
+      const editSuggestionMatches = aiResponse.match(/EDIT_SUGGESTION:\s*({[^}]+})/g)
+      if (editSuggestionMatches && viewingArtifact) {
+        const suggestions: EditSuggestion[] = []
+        editSuggestionMatches.forEach((match, index) => {
+          try {
+            const jsonStr = match.replace("EDIT_SUGGESTION:", "").trim()
+            const suggestion = JSON.parse(jsonStr)
+            const originalText = suggestion.originalText
+            const contentIndex = viewingArtifact.content.indexOf(originalText)
+            
+            if (contentIndex !== -1) {
+              suggestions.push({
+                id: `edit_${Date.now()}_${index}`,
+                type: suggestion.type,
+                startIndex: contentIndex,
+                endIndex: contentIndex + originalText.length,
+                originalText: originalText,
+                newText: suggestion.newText || "",
+                reason: suggestion.reason || "AI suggested improvement"
+              })
+            }
+          } catch (error) {
+            console.error("Error parsing edit suggestion:", error)
+          }
+        })
+        setEditSuggestions(suggestions)
+      }
+
       const aiMessage: Message = {
         role: "model",
         parts: [{ text: aiResponse }],
         timestamp: new Date(),
       }
 
-      if (isArtifactChat) {
-        setArtifactMessages((prev) => [...prev, aiMessage])
-      } else {
-        setMessages((prev) => [...prev, aiMessage])
-      }
+      setArtifactMessages((prev) => [...prev, aiMessage])
     } catch (error) {
       console.error("Error:", error)
       const errorMessage = "Neura: Sorry, I encountered an error. Please try again."
@@ -466,23 +538,14 @@ export default function ProductNow() {
         parts: [{ text: errorMessage }],
         timestamp: new Date(),
       }
-
-      if (isArtifactChat) {
-        setArtifactMessages((prev) => [...prev, errorMsg])
-      } else {
-        setMessages((prev) => [...prev, errorMsg])
-      }
+      setArtifactMessages((prev) => [...prev, errorMsg])
     } finally {
-      if (isArtifactChat) {
-        setIsArtifactLoading(false)
-      } else {
-        setIsLoading(false)
-      }
+      setIsArtifactLoading(false)
     }
   }
 
-  const sendMessage = async (messageContent: string, isArtifactChat = false) => {
-    if (!messageContent.trim() || (isArtifactChat ? isArtifactLoading : isLoading)) return
+  const sendMessage = async (messageContent: string) => {
+    if (!messageContent.trim() || isArtifactLoading) return
 
     const userMessage: Message = {
       role: "user",
@@ -490,51 +553,28 @@ export default function ProductNow() {
       timestamp: new Date(),
     }
 
-    if (isArtifactChat) {
-      setArtifactMessages((prev) => [...prev, userMessage])
-      setIsArtifactLoading(true)
-      setArtifactInput("")
-      await sendApiRequest(messageContent, [...artifactMessages, userMessage], true)
-    } else {
-      setMessages((prev) => [...prev, userMessage])
-      setIsLoading(true)
-      setInput("")
-      await sendApiRequest(messageContent, [...messages, userMessage], false)
-    }
+    setArtifactMessages((prev) => [...prev, userMessage])
+    setIsArtifactLoading(true)
+    setArtifactInput("")
+    await sendApiRequest(messageContent, [...artifactMessages, userMessage])
   }
 
-  const handleFileUpload = async (file: File, type: "background" | "chat") => {
+  const handleFileUpload = async (file: File) => {
     const reader = new FileReader()
     reader.onload = (e) => {
       const content = e.target?.result as string
-      if (type === "background") {
-        setBackgroundFileContent(content)
-        setBackgroundFileName(file.name)
-      } else if (type === "chat") {
-        const userMessage: Message = {
-          role: "user",
-          parts: [
-            { text: `Attached file: ${file.name}\n\n${content.substring(0, 500)}${content.length > 500 ? "..." : ""}` },
-          ],
-          attachedFile: {
-            name: file.name,
-            url: URL.createObjectURL(file),
-            type: file.type,
-          },
-          timestamp: new Date(),
-        }
-        setMessages((prev) => [...prev, userMessage])
-        setInput("")
-      }
+      setBackgroundFileContent(content)
+      setBackgroundFileName(file.name)
     }
     reader.readAsText(file)
   }
 
-  const saveBackground = () => {
+  const saveBackground = async () => {
     setBackgroundInfo({
       file: backgroundFileContent,
       text: backgroundText,
     })
+    await generateKnowledgeSummary()
     alert("Background information saved!")
   }
 
@@ -611,17 +651,58 @@ export default function ProductNow() {
     setViewingArtifact(updatedArtifact)
   }
 
-  const applyEdit = () => {
-    if (pendingEdit && viewingArtifact) {
-      updateArtifact({ content: pendingEdit })
-      setPendingEdit(null)
-      setEditingSuggestion(null)
+  const applyEditSuggestion = (suggestion: EditSuggestion) => {
+    if (!viewingArtifact) return
+
+    let newContent = viewingArtifact.content
+    
+    if (suggestion.type === "replace" || suggestion.type === "remove") {
+      newContent = newContent.substring(0, suggestion.startIndex) + 
+                   (suggestion.type === "replace" ? suggestion.newText : "") +
+                   newContent.substring(suggestion.endIndex)
+    } else if (suggestion.type === "add") {
+      newContent = newContent.substring(0, suggestion.startIndex) + 
+                   suggestion.newText + 
+                   newContent.substring(suggestion.startIndex)
     }
+
+    updateArtifact({ content: newContent })
+    setEditSuggestions(prev => prev.filter(s => s.id !== suggestion.id))
   }
 
-  const rejectEdit = () => {
-    setPendingEdit(null)
-    setEditingSuggestion(null)
+  const rejectEditSuggestion = (suggestion: EditSuggestion) => {
+    setEditSuggestions(prev => prev.filter(s => s.id !== suggestion.id))
+  }
+
+  const renderContentWithSuggestions = (content: string) => {
+    if (editSuggestions.length === 0) {
+      return content
+    }
+
+    let result = content
+    let offset = 0
+    
+    // Sort suggestions by start index
+    const sortedSuggestions = [...editSuggestions].sort((a, b) => a.startIndex - b.startIndex)
+    
+    sortedSuggestions.forEach(suggestion => {
+      const adjustedStart = suggestion.startIndex + offset
+      const adjustedEnd = suggestion.endIndex + offset
+      
+      let replacement = ""
+      if (suggestion.type === "remove") {
+        replacement = `<span class="bg-red-100 text-red-800 line-through">${suggestion.originalText}</span>`
+      } else if (suggestion.type === "add") {
+        replacement = `<span class="bg-green-100 text-green-800">${suggestion.newText}</span>${suggestion.originalText}`
+      } else if (suggestion.type === "replace") {
+        replacement = `<span class="bg-red-100 text-red-800 line-through">${suggestion.originalText}</span><span class="bg-green-100 text-green-800">${suggestion.newText}</span>`
+      }
+      
+      result = result.substring(0, adjustedStart) + replacement + result.substring(adjustedEnd)
+      offset += replacement.length - (adjustedEnd - adjustedStart)
+    })
+    
+    return result
   }
 
   const filteredTemplates = TEMPLATES.filter((template) =>
@@ -642,13 +723,15 @@ export default function ProductNow() {
   }) => (
     <Button
       variant={isActive ? "default" : "ghost"}
-      className={`flex items-center gap-2 px-4 py-2 rounded-full transition-all cursor-pointer ${
-        isActive ? "bg-blue-600 text-white shadow-sm hover:bg-blue-700" : "hover:bg-blue-50 text-gray-700"
+      className={`flex items-center gap-2 px-3 py-2 rounded-lg transition-all duration-200 ${
+        isActive 
+          ? "bg-gray-900 text-white shadow-sm" 
+          : "hover:bg-gray-100 text-gray-700"
       }`}
       onClick={() => setActiveSection(section)}
     >
       <Icon className="w-4 h-4" />
-      <span className="hidden sm:inline">{label}</span>
+      <span className="hidden sm:inline text-sm font-medium">{label}</span>
     </Button>
   )
 
@@ -656,7 +739,7 @@ export default function ProductNow() {
     <Button
       variant="ghost"
       size="sm"
-      className="w-10 h-10 p-0 hover:bg-blue-50 group relative"
+      className="w-10 h-10 p-0 hover:bg-gray-100 group relative"
       onClick={onClick}
     >
       <Icon className="w-4 h-4 text-gray-600" />
@@ -667,31 +750,21 @@ export default function ProductNow() {
   )
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-indigo-50 flex">
-      {/* Quick Access Sidebar */}
-      <div className="w-16 bg-white/90 backdrop-blur-xl border-r border-blue-100 flex flex-col items-center py-4 space-y-3">
-        <div className="w-8 h-8 bg-gradient-to-r from-blue-600 to-indigo-600 rounded-lg flex items-center justify-center mb-4">
-          <span className="text-white font-bold text-sm">PN</span>
-        </div>
-        <SidebarButton icon={Clock} label="Previous Chats" onClick={() => {}} />
-        <SidebarButton icon={Layers} label="Background Context" onClick={() => setActiveSection("background")} />
-        <SidebarButton icon={Settings} label="Permissions" onClick={() => {}} />
-        <SidebarButton icon={HelpCircle} label="Instructions" onClick={() => {}} />
-        <SidebarButton icon={Archive} label="Archive" onClick={() => {}} />
-      </div>
-
+    <div className="min-h-screen bg-gray-50 flex">
       <div className="flex-1 flex flex-col">
         {/* Navigation */}
-        <nav className="sticky top-0 z-50 bg-white/90 backdrop-blur-xl border-b border-blue-100">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div className="flex items-center justify-between h-16">
-              <span className="font-semibold text-xl bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">
-                ProductNow
-              </span>
+        <nav className="sticky top-0 z-50 bg-white border-b border-gray-200">
+          <div className="max-w-7xl mx-auto px-6">
+            <div className="flex items-center justify-between h-14">
+              <div className="flex items-center gap-2">
+                <div className="w-6 h-6 bg-gray-900 rounded-md flex items-center justify-center">
+                  <span className="text-white font-bold text-xs">PN</span>
+                </div>
+                <span className="font-semibold text-lg text-gray-900">ProductNow</span>
+              </div>
               <div className="flex items-center gap-2">
                 <NavButton icon={Home} label="Home" section="home" isActive={activeSection === "home"} />
                 <NavButton icon={FileText} label="Hub" section="hub" isActive={activeSection === "hub"} />
-                <NavButton icon={MessageSquare} label="Chat" section="chat" isActive={activeSection === "chat"} />
                 <NavButton icon={Layers} label="Background" section="background" isActive={activeSection === "background"} />
               </div>
             </div>
@@ -699,533 +772,383 @@ export default function ProductNow() {
         </nav>
 
         {/* Main Content */}
-        <main className="flex-1 p-6">
-          {/* Home Section */}
-          {activeSection === "home" && (
-            <div className="text-center py-20">
-              <div className="max-w-4xl mx-auto">
-                <h1 className="text-6xl font-bold bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 bg-clip-text text-transparent mb-6">
-                  ProductNow
-                </h1>
-                <p className="text-xl text-gray-600 mb-12 max-w-2xl mx-auto leading-relaxed">
-                  Your vision. AI that builds with you—from idea to launch. Streamline product development with Neura, your AI Product Manager.
-                </p>
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mt-16">
-                  {[
-                    { icon: FileText, title: "Content Hub", desc: "View and edit AI-generated artifacts", section: "hub" },
-                    { icon: MessageSquare, title: "Chat with Neura", desc: "Get product management insights", section: "chat" },
-                    { icon: Layers, title: "Background", desc: "Store project context", section: "background" },
-                    { icon: Brain, title: "AI Templates", desc: "Generate documents from templates", section: "hub" },
-                  ].map((item, i) => (
-                    <Card
-                      key={i}
-                      className="p-6 hover:shadow-xl transition-all duration-300 border-0 bg-white/70 backdrop-blur-sm cursor-pointer group hover:scale-105"
-                      onClick={() => setActiveSection(item.section)}
-                    >
-                      <div className="w-12 h-12 rounded-xl bg-gradient-to-r from-blue-500 to-blue-600 flex items-center justify-center mx-auto mb-4 group-hover:scale-110 transition-transform">
-                        <item.icon className="w-6 h-6 text-white" />
-                      </div>
-                      <h3 className="font-semibold mb-2 text-gray-900 text-center">{item.title}</h3>
-                      <p className="text-sm text-gray-600 text-center">{item.desc}</p>
-                    </Card>
-                  ))}
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Hub Section */}
-          {activeSection === "hub" && !viewingArtifact && (
-            <div className="max-w-7xl mx-auto">
-              <div className="text-center mb-8">
-                <h2 className="text-3xl font-bold mb-2 bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">
-                  Content Hub
-                </h2>
-                <p className="text-gray-600">Manage your AI-generated artifacts and templates</p>
-              </div>
-
-              {/* Your Artifacts */}
-              <div className="mb-12">
-                <div className="flex items-center justify-between mb-6">
-                  <h3 className="text-xl font-semibold text-gray-900 flex items-center gap-2">
-                    <Sparkles className="w-5 h-5 text-blue-600" />
-                    YOUR ARTIFACTS
-                  </h3>
-                  <Button
-                    onClick={() => setShowTemplates(true)}
-                    className="bg-blue-600 hover:bg-blue-700 flex items-center gap-2"
-                  >
-                    <Plus className="w-4 h-4" />
-                    Create Artifact
-                  </Button>
-                </div>
-
-                {artifacts.length > 0 ? (
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-                    {artifacts.map((artifact) => {
-                      const template = TEMPLATES.find(t => t.type === artifact.type)
-                      const IconComponent = template?.icon || FileText
-                      return (
-                        <Card
-                          key={artifact.id}
-                          className="p-4 hover:shadow-lg transition-all cursor-pointer border border-gray-200 bg-white"
-                          onClick={() => setViewingArtifact(artifact)}
-                        >
-                          <div className="flex flex-col">
-                            <div className="flex items-center gap-3 mb-3">
-                              <div className="w-10 h-10 rounded-lg bg-blue-600 flex items-center justify-center">
-                                <IconComponent className="w-5 h-5 text-white" />
-                              </div>
-                              <div className="flex-1 min-w-0">
-                                <h4 className="font-medium text-sm text-gray-900 truncate">{artifact.title}</h4>
-                                <p className="text-xs text-gray-500">{artifact.createdAt.toLocaleDateString()}</p>
-                              </div>
-                            </div>
-                            <Badge variant="secondary" className="text-xs self-start bg-blue-50 text-blue-700">
-                              {artifact.type.toUpperCase()}
-                            </Badge>
-                          </div>
-                        </Card>
-                      )
-                    })}
+        <main className="flex-1 flex">
+          <div className="flex-1 p-6">
+            {/* Home Section */}
+            {activeSection === "home" && (
+              <div className="text-center py-20">
+                <div className="max-w-4xl mx-auto">
+                  <h1 className="text-5xl font-bold text-gray-900 mb-6">
+                    ProductNow
+                  </h1>
+                  <p className="text-xl text-gray-600 mb-12 max-w-2xl mx-auto leading-relaxed">
+                    Your vision. AI that builds with you—from idea to launch. Streamline product development with Neura, your AI Product Manager.
+                  </p>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mt-16">
+                    {[
+                      { icon: FileText, title: "Content Hub", desc: "View and edit AI-generated artifacts", section: "hub" },
+                      { icon: Layers, title: "Background", desc: "Store project context", section: "background" },
+                      { icon: Brain, title: "AI Templates", desc: "Generate documents from templates", section: "hub" },
+                    ].map((item, i) => (
+                      <Card
+                        key={i}
+                        className="p-6 hover:shadow-lg transition-all duration-300 cursor-pointer group border-gray-200 hover:border-gray-300"
+                        onClick={() => setActiveSection(item.section)}
+                      >
+                        <div className="w-12 h-12 rounded-lg bg-gray-900 flex items-center justify-center mx-auto mb-4 group-hover:scale-105 transition-transform">
+                          <item.icon className="w-6 h-6 text-white" />
+                        </div>
+                        <h3 className="font-semibold mb-2 text-gray-900 text-center">{item.title}</h3>
+                        <p className="text-sm text-gray-600 text-center">{item.desc}</p>
+                      </Card>
+                    ))}
                   </div>
-                ) : (
-                  <Card className="p-12 text-center border-dashed border-2 border-gray-200">
-                    <FileText className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-                    <h3 className="text-lg font-medium text-gray-900 mb-2">No artifacts yet</h3>
-                    <p className="text-gray-600 mb-4">Create your first artifact using our templates</p>
-                    <Button onClick={() => setShowTemplates(true)} className="bg-blue-600 hover:bg-blue-700">
-                      Get Started
-                    </Button>
-                  </Card>
-                )}
+                </div>
               </div>
+            )}
 
-              {/* Integration Section */}
-              <div className="mb-8">
-                <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
-                  <Layers className="w-5 h-5 text-blue-600" />
-                  INTEGRATION
-                </h3>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
-                  <Card className="p-6 hover:shadow-lg transition-all cursor-pointer border border-blue-200 bg-white">
-                    <div className="flex flex-col items-center text-center">
-                      <div className="w-12 h-12 rounded-lg bg-blue-600 flex items-center justify-center mb-3">
-                        <span className="text-white font-bold text-lg">J</span>
-                      </div>
-                      <h4 className="font-medium text-sm text-gray-900 mb-1">JIRA</h4>
-                      <p className="text-xs text-blue-600">Integration</p>
+            {/* Hub Section */}
+            {activeSection === "hub" && !viewingArtifact && (
+              <div className="max-w-7xl mx-auto">
+                <div className="mb-8">
+                  <h2 className="text-3xl font-bold mb-2 text-gray-900">Content Hub</h2>
+                  <p className="text-gray-600">Manage your AI-generated artifacts and templates</p>
+                </div>
+
+                {/* Your Artifacts */}
+                <div className="mb-12">
+                  <div className="flex items-center justify-between mb-6">
+                    <h3 className="text-xl font-semibold text-gray-900 flex items-center gap-2">
+                      <Sparkles className="w-5 h-5 text-gray-700" />
+                      YOUR ARTIFACTS
+                    </h3>
+                    <Button
+                      onClick={() => setShowTemplates(true)}
+                      className="bg-gray-900 hover:bg-gray-800 flex items-center gap-2"
+                    >
+                      <Plus className="w-4 h-4" />
+                      Create Artifact
+                    </Button>
+                  </div>
+
+                  {artifacts.length > 0 ? (
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                      {artifacts.map((artifact) => {
+                        const template = TEMPLATES.find(t => t.type === artifact.type)
+                        const IconComponent = template?.icon || FileText
+                        return (
+                          <Card
+                            key={artifact.id}
+                            className="p-4 hover:shadow-lg transition-all cursor-pointer border-gray-200 hover:border-gray-300"
+                            onClick={() => setViewingArtifact(artifact)}
+                          >
+                            <div className="flex flex-col">
+                              <div className="flex items-center gap-3 mb-3">
+                                <div className="w-10 h-10 rounded-lg bg-gray-900 flex items-center justify-center">
+                                  <IconComponent className="w-5 h-5 text-white" />
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                  <h4 className="font-medium text-sm text-gray-900 truncate">{artifact.title}</h4>
+                                  <p className="text-xs text-gray-500">{artifact.createdAt.toLocaleDateString()}</p>
+                                </div>
+                              </div>
+                              <Badge variant="secondary" className="text-xs self-start bg-gray-100 text-gray-700">
+                                {artifact.type.toUpperCase()}
+                              </Badge>
+                            </div>
+                          </Card>
+                        )
+                      })}
                     </div>
-                  </Card>
-                  <Card className="p-6 hover:shadow-lg transition-all cursor-pointer border border-blue-200 bg-white">
-                    <div className="flex flex-col items-center text-center">
-                      <div className="w-12 h-12 rounded-lg bg-blue-600 flex items-center justify-center mb-3">
-                        <span className="text-white font-bold text-lg">T</span>
-                      </div>
-                      <h4 className="font-medium text-sm text-gray-900 mb-1">TRELLO</h4>
-                      <p className="text-xs text-blue-600">Integration</p>
-                    </div>
-                  </Card>
-                  <Card className="p-6 hover:shadow-lg transition-all cursor-pointer border border-gray-200 bg-gray-50">
-                    <div className="flex flex-col items-center text-center">
-                      <div className="w-12 h-12 rounded-lg bg-gray-300 flex items-center justify-center mb-3">
-                        <span className="text-gray-600 text-sm">+</span>
-                      </div>
-                      <h4 className="font-medium text-sm text-gray-500 mb-1">More</h4>
-                      <p className="text-xs text-gray-400">Coming Soon!</p>
-                    </div>
-                  </Card>
+                  ) : (
+                    <Card className="p-12 text-center border-dashed border-2 border-gray-200">
+                      <FileText className="w-12 h-12 text-gray-400 mx-auto mb-4" />
+                      <h3 className="text-lg font-medium text-gray-900 mb-2">No artifacts yet</h3>
+                      <p className="text-gray-600 mb-4">Create your first artifact using our templates</p>
+                      <Button onClick={() => setShowTemplates(true)} className="bg-gray-900 hover:bg-gray-800">
+                        Get Started
+                      </Button>
+                    </Card>
+                  )}
                 </div>
 
                 {/* Templates Section */}
-                <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
-                  <Code className="w-5 h-5 text-blue-600" />
-                  TEMPLATES
-                </h3>
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {TEMPLATES.slice(0, 6).map((template) => (
-                    <Card
-                      key={template.id}
-                      className="p-4 hover:shadow-lg transition-all cursor-pointer border border-gray-200 bg-white"
-                      onClick={() => createArtifactFromTemplate(template)}
-                    >
-                      <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-lg bg-blue-600 flex items-center justify-center">
-                          <template.icon className="w-5 h-5 text-white" />
+                <div className="mb-8">
+                  <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
+                    <Code className="w-5 h-5 text-gray-700" />
+                    TEMPLATES
+                  </h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {TEMPLATES.slice(0, 6).map((template) => (
+                      <Card
+                        key={template.id}
+                        className="p-4 hover:shadow-lg transition-all cursor-pointer border-gray-200 hover:border-gray-300"
+                        onClick={() => createArtifactFromTemplate(template)}
+                      >
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 rounded-lg bg-gray-900 flex items-center justify-center">
+                            <template.icon className="w-5 h-5 text-white" />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <h4 className="font-medium text-sm text-gray-900">{template.name}</h4>
+                            <p className="text-xs text-gray-500 truncate">{template.description}</p>
+                          </div>
                         </div>
-                        <div className="flex-1 min-w-0">
-                          <h4 className="font-medium text-sm text-gray-900">{template.name}</h4>
-                          <p className="text-xs text-gray-500 truncate">{template.description}</p>
-                        </div>
-                      </div>
-                    </Card>
-                  ))}
+                      </Card>
+                    ))}
+                  </div>
                 </div>
               </div>
-            </div>
-          )}
+            )}
 
-          {/* Artifact Viewer */}
-          {activeSection === "hub" && viewingArtifact && (
-            <ResizablePanelGroup direction="horizontal" className="h-[calc(100vh-12rem)] min-h-[500px]">
-              <ResizablePanel defaultSize={70} minSize={50}>
-                <div className="flex flex-col h-full pr-4">
-                  <div className="flex items-center justify-between mb-4">
-                    <Button
-                      variant="ghost"
-                      onClick={() => setViewingArtifact(null)}
-                      className="flex items-center gap-2"
-                    >
-                      <ChevronLeft className="w-4 h-4" />
-                      Back to Hub
+            {/* Artifact Viewer */}
+            {activeSection === "hub" && viewingArtifact && (
+              <div className="flex-1 flex flex-col">
+                <div className="flex items-center justify-between mb-4">
+                  <Button
+                    variant="ghost"
+                    onClick={() => setViewingArtifact(null)}
+                    className="flex items-center gap-2"
+                  >
+                    <ChevronLeft className="w-4 h-4" />
+                    Back to Hub
+                  </Button>
+                  <div className="flex items-center gap-2">
+                    <Badge variant="secondary" className="bg-gray-100 text-gray-700">
+                      {viewingArtifact.type.toUpperCase()}
+                    </Badge>
+                    <Button variant="outline" size="sm">
+                      <Save className="w-4 h-4 mr-2" />
+                      Export
                     </Button>
-                    <div className="flex items-center gap-2">
-                      <Badge variant="secondary" className="bg-blue-50 text-blue-700">
-                        {viewingArtifact.type.toUpperCase()}
-                      </Badge>
-                      <Button variant="outline" size="sm">
-                        <Save className="w-4 h-4 mr-2" />
-                        Export
-                      </Button>
-                    </div>
+                  </div>
+                </div>
+
+                <Card className="flex-1 p-6 overflow-hidden">
+                  <div className="mb-4">
+                    <Input
+                      value={viewingArtifact.title}
+                      onChange={(e) => updateArtifact({ title: e.target.value })}
+                      className="text-xl font-semibold border-none px-0 focus:ring-0"
+                    />
+                    <p className="text-sm text-gray-500 mt-1">
+                      Created: {viewingArtifact.createdAt.toLocaleDateString()} • 
+                      Updated: {viewingArtifact.updatedAt.toLocaleDateString()}
+                    </p>
                   </div>
 
-                  <Card className="flex-1 p-6 overflow-hidden">
-                    <div className="mb-4">
-                      <Input
-                        value={viewingArtifact.title}
-                        onChange={(e) => updateArtifact({ title: e.target.value })}
-                        className="text-xl font-semibold border-none px-0 focus:ring-0"
-                      />
-                      <p className="text-sm text-gray-500 mt-1">
-                        Created: {viewingArtifact.createdAt.toLocaleDateString()} • 
-                        Updated: {viewingArtifact.updatedAt.toLocaleDateString()}
-                      </p>
-                    </div>
-
-                    <ScrollArea className="h-[calc(100%-6rem)]">
-                      <div className="prose prose-sm max-w-none">
-                        <Textarea
-                          value={viewingArtifact.content}
-                          onChange={(e) => updateArtifact({ content: e.target.value })}
-                          className="min-h-[400px] border-none resize-none focus:ring-0 font-mono text-sm"
-                        />
-                      </div>
-                    </ScrollArea>
-                  </Card>
-                </div>
-              </ResizablePanel>
-
-              <ResizableHandle />
-
-              <ResizablePanel defaultSize={30} minSize={25} maxSize={45}>
-                <div className="flex flex-col h-full pl-4">
-                  <Card className="bg-white/70 backdrop-blur-sm border-blue-100 overflow-hidden flex-1 flex flex-col">
-                    <div className="p-4 border-b border-blue-100 bg-white/50">
-                      <h3 className="font-semibold text-blue-900 mb-2 flex items-center gap-2">
-                        <Brain className="w-4 h-4" />
-                        Neura - Product Manager
-                      </h3>
-                      <p className="text-xs text-blue-600">Ask for suggestions or request edits</p>
-                    </div>
-
-                    <ScrollArea className="flex-1 p-4">
-                      <div className="space-y-4">
-                        {artifactMessages.length === 0 && (
-                          <div className="bg-blue-50 p-3 rounded-lg">
-                            <p className="text-sm text-blue-900 mb-2">Hi! I can help you with:</p>
-                            <ul className="text-xs text-blue-700 space-y-1">
-                              <li>• Suggest improvements to your content</li>
-                              <li>• Help you rewrite sections</li>
-                              <li>• Add missing information</li>
-                              <li>• Optimize for clarity and impact</li>
-                            </ul>
-                          </div>
-                        )}
-
-                        {artifactMessages.map((message, index) => (
-                          <div
-                            key={index}
-                            className={`${message.role === "user" ? "ml-4" : "mr-4"}`}
-                          >
-                            <div className={`flex gap-2 ${message.role === "user" ? "flex-row-reverse" : "flex-row"}`}>
-                              <div className="flex-shrink-0">
-                                {message.role === "user" ? (
-                                  <div className="w-6 h-6 rounded-full bg-blue-600 flex items-center justify-center">
-                                    <User className="w-3 h-3 text-white" />
-                                  </div>
-                                ) : (
-                                  <div className="w-6 h-6 rounded-full bg-blue-600 flex items-center justify-center">
-                                    <Brain className="w-3 h-3 text-white" />
-                                  </div>
-                                )}
-                              </div>
-                              <div className={`flex-1 ${message.role === "user" ? "text-right" : "text-left"}`}>
-                                <div className={`inline-block p-2 rounded-lg text-xs ${
-                                  message.role === "user" 
-                                    ? "bg-blue-600 text-white" 
-                                    : "bg-gray-100 text-gray-900"
-                                }`}>
-                                  <ReactMarkdown>{message.parts[0].text}</ReactMarkdown>
-                                </div>
-                              </div>
+                  {/* Edit Suggestions */}
+                  {editSuggestions.length > 0 && (
+                    <div className="mb-4 p-4 bg-amber-50 border border-amber-200 rounded-lg">
+                      <h4 className="font-medium text-amber-900 mb-2 flex items-center gap-2">
+                        <Lightbulb className="w-4 h-4" />
+                        Pending Suggestions
+                      </h4>
+                      <div className="space-y-2">
+                        {editSuggestions.map((suggestion) => (
+                          <div key={suggestion.id} className="flex items-center justify-between bg-white p-2 rounded border">
+                            <div className="flex-1">
+                              <p className="text-sm text-gray-900">{suggestion.reason}</p>
+                              <p className="text-xs text-gray-500 mt-1">
+                                {suggestion.type === "remove" && "Remove text"}
+                                {suggestion.type === "add" && "Add text"}
+                                {suggestion.type === "replace" && "Replace text"}
+                              </p>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => applyEditSuggestion(suggestion)}
+                                className="bg-green-50 border-green-200 text-green-800 hover:bg-green-100"
+                              >
+                                <Check className="w-3 h-3" />
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => rejectEditSuggestion(suggestion)}
+                                className="bg-red-50 border-red-200 text-red-800 hover:bg-red-100"
+                              >
+                                <X className="w-3 h-3" />
+                              </Button>
                             </div>
                           </div>
                         ))}
-
-                        {isArtifactLoading && (
-                          <div className="flex items-center gap-2 text-xs text-blue-600">
-                            <Loader2 className="w-3 h-3 animate-spin" />
-                            Neura is thinking...
-                          </div>
-                        )}
-                        <div ref={artifactMessagesEndRef} />
                       </div>
-                    </ScrollArea>
+                    </div>
+                  )}
 
-                    <div className="p-4 border-t border-blue-100 bg-white/50">
-                      <div className="relative">
-                        <Textarea
-                          value={artifactInput}
-                          onChange={(e) => setArtifactInput(e.target.value)}
-                          placeholder="Ask Neura for suggestions..."
-                          className="min-h-[60px] max-h-24 resize-none border-blue-200 focus:ring-2 focus:ring-blue-500 focus:border-transparent pr-12 bg-white text-sm"
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter' && !e.shiftKey) {
-                              e.preventDefault()
-                              sendMessage(artifactInput, true)
-                            }
-                          }}
-                        />
+                  <ScrollArea className="h-[calc(100%-8rem)]">
+                    <div className="prose prose-sm max-w-none">
+                      <div
+                        className="min-h-[400px] whitespace-pre-wrap font-mono text-sm p-4 bg-gray-50 rounded-lg"
+                        dangerouslySetInnerHTML={{ __html: renderContentWithSuggestions(viewingArtifact.content) }}
+                      />
+                    </div>
+                  </ScrollArea>
+                </Card>
+              </div>
+            )}
+
+            {/* Background Section */}
+            {activeSection === "background" && (
+              <div className="max-w-4xl mx-auto space-y-6">
+                <div className="mb-8">
+                  <h2 className="text-3xl font-bold mb-2 text-gray-900">Background Information</h2>
+                  <p className="text-gray-600">Provide context for better AI responses and document generation</p>
+                </div>
+
+                <Card className="p-6 border-gray-200">
+                  <div className="space-y-6">
+                    <div>
+                      <Label className="text-sm font-medium mb-2 block">Upload Background File</Label>
+                      <div className="flex items-center gap-3">
                         <Button
-                          size="sm"
-                          onClick={() => sendMessage(artifactInput, true)}
-                          disabled={!artifactInput.trim() || isArtifactLoading}
-                          className="absolute right-2 bottom-2 h-8 w-8 p-0 bg-blue-600 hover:bg-blue-700 rounded"
+                          variant="outline"
+                          className="bg-white border-gray-300 hover:bg-gray-50"
+                          onClick={() => backgroundFileInputRef.current?.click()}
                         >
-                          <Send className="w-3 h-3" />
+                          <Upload className="w-4 h-4 mr-2" />
+                          Choose PDF or TXT file
                         </Button>
+                        {backgroundFileName && <span className="text-sm text-gray-600">{backgroundFileName}</span>}
+                      </div>
+                      <input
+                        ref={backgroundFileInputRef}
+                        type="file"
+                        accept=".pdf,.txt"
+                        className="hidden"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0]
+                          if (file) handleFileUpload(file)
+                        }}
+                      />
+                    </div>
+
+                    <div>
+                      <Label className="text-sm font-medium mb-2 block">Background Text</Label>
+                      <Textarea
+                        value={backgroundText || ""}
+                        onChange={(e) => setBackgroundText(e.target.value)}
+                        placeholder="Describe your company, product, target users, business goals, or any context that will help Neura provide better assistance..."
+                        className="min-h-[200px] border-gray-300 focus:ring-gray-500 focus:border-gray-500"
+                      />
+                    </div>
+
+                    <Button onClick={saveBackground} className="w-full bg-gray-900 hover:bg-gray-800">
+                      Save Background Information
+                    </Button>
+                  </div>
+                </Card>
+
+                {knowledgeSummary && (
+                  <Card className="p-6 border-gray-200">
+                    <h3 className="font-semibold mb-4 text-gray-900 flex items-center gap-2">
+                      <Brain className="w-5 h-5" />
+                      What We Know
+                    </h3>
+                    <div className="bg-gray-50 p-4 rounded-lg">
+                      <div className="prose prose-sm max-w-none">
+                        <ReactMarkdown>{knowledgeSummary}</ReactMarkdown>
                       </div>
                     </div>
                   </Card>
-                </div>
-              </ResizablePanel>
-            </ResizablePanelGroup>
-          )}
-
-          {/* Chat Section */}
-          {activeSection === "chat" && (
-            <div className="max-w-4xl mx-auto h-[calc(100vh-12rem)]">
-              <div className="text-center mb-6">
-                <h2 className="text-3xl font-bold mb-2 bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">
-                  Chat with Neura
-                </h2>
-                <p className="text-gray-600">Your AI Product Manager assistant</p>
+                )}
               </div>
+            )}
+          </div>
 
-              <Card className="bg-white/70 backdrop-blur-sm border-blue-100 overflow-hidden h-[calc(100%-6rem)] flex flex-col">
-                <div className="p-4 border-b border-blue-100 bg-white/50">
-                  <div className="flex items-center gap-3">
-                    <div className="w-8 h-8 rounded-full bg-blue-600 flex items-center justify-center">
-                      <Brain className="w-4 h-4 text-white" />
-                    </div>
-                    <div>
-                      <h3 className="font-semibold text-blue-900">Neura</h3>
-                      <p className="text-xs text-blue-600">Product Manager • Online</p>
-                    </div>
-                  </div>
+          {/* Right Sidebar for Hub */}
+          {activeSection === "hub" && viewingArtifact && (
+            <div className="w-80 border-l border-gray-200 bg-white">
+              <div className="h-full flex flex-col">
+                <div className="p-4 border-b border-gray-200">
+                  <h3 className="font-semibold text-gray-900 mb-1 flex items-center gap-2">
+                    <Brain className="w-4 h-4" />
+                    Neura
+                  </h3>
+                  <p className="text-xs text-gray-500">AI Product Manager</p>
                 </div>
 
-                <ScrollArea className="flex-1 p-4">
+                <ScrollArea className="flex-1 p-4" style={{ maxHeight: 'calc(100vh - 200px)' }}>
                   <div className="space-y-4">
-                    {messages.length === 0 && (
-                      <div className="bg-blue-50 p-4 rounded-lg">
-                        <p className="text-sm text-blue-900 mb-3">
-                          <strong>Neura:</strong> Hi! I'm your AI Product Manager. I can help you with:
-                        </p>
-                        <ul className="text-xs text-blue-700 space-y-1">
-                          <li>• Create an OKR from your PRD</li>
-                          <li>• Generate product roadmaps</li>
-                          <li>• Define user personas</li>
-                          <li>• Draft product requirements</li>
-                          <li>• Analyze market opportunities</li>
+                    {artifactMessages.length === 0 && (
+                      <div className="bg-gray-50 p-3 rounded-lg">
+                        <p className="text-sm text-gray-900 mb-2">Hi! I can help you with:</p>
+                        <ul className="text-xs text-gray-700 space-y-1">
+                          <li>• Suggest improvements to your content</li>
+                          <li>• Help you rewrite sections</li>
+                          <li>• Add missing information</li>
+                          <li>• Optimize for clarity and impact</li>
                         </ul>
-                        <p className="text-xs text-blue-600 mt-3">
-                          Try: "... an OKR from this PRD" or "... a roadmap for Q1"
-                        </p>
                       </div>
                     )}
 
-                    {messages.map((message, index) => (
-                      <div key={index} className={`${message.role === "user" ? "ml-8" : "mr-8"}`}>
-                        <div className={`flex gap-3 ${message.role === "user" ? "flex-row-reverse" : "flex-row"}`}>
+                    {artifactMessages.map((message, index) => (
+                      <div key={index} className={`${message.role === "user" ? "ml-4" : "mr-4"}`}>
+                        <div className={`flex gap-2 ${message.role === "user" ? "flex-row-reverse" : "flex-row"}`}>
                           <div className="flex-shrink-0">
                             {message.role === "user" ? (
-                              <div className="w-8 h-8 rounded-full bg-blue-600 flex items-center justify-center">
-                                <User className="w-4 h-4 text-white" />
+                              <div className="w-6 h-6 rounded-full bg-gray-900 flex items-center justify-center">
+                                <User className="w-3 h-3 text-white" />
                               </div>
                             ) : (
-                              <div className="w-8 h-8 rounded-full bg-blue-600 flex items-center justify-center">
-                                <Brain className="w-4 h-4 text-white" />
+                              <div className="w-6 h-6 rounded-full bg-gray-900 flex items-center justify-center">
+                                <Brain className="w-3 h-3 text-white" />
                               </div>
                             )}
                           </div>
                           <div className={`flex-1 ${message.role === "user" ? "text-right" : "text-left"}`}>
-                            <div className="text-xs text-gray-500 mb-1">
-                              {message.role === "user" ? "You" : "Neura"} • {message.timestamp.toLocaleTimeString()}
-                            </div>
-                            <div className={`inline-block p-3 rounded-lg max-w-[85%] ${
+                            <div className={`inline-block p-2 rounded-lg text-xs max-w-full ${
                               message.role === "user" 
-                                ? "bg-blue-600 text-white" 
-                                : "bg-white border border-gray-200"
+                                ? "bg-gray-900 text-white" 
+                                : "bg-gray-100 text-gray-900"
                             }`}>
-                              <div className="prose prose-sm max-w-none">
+                              <div className="prose prose-xs max-w-none">
                                 <ReactMarkdown>{message.parts[0].text}</ReactMarkdown>
                               </div>
-                              {message.attachedFile && (
-                                <div className="mt-2 text-xs flex items-center gap-1 opacity-75">
-                                  <Paperclip className="w-3 h-3" />
-                                  {message.attachedFile.name}
-                                </div>
-                              )}
                             </div>
                           </div>
                         </div>
                       </div>
                     ))}
 
-                    {isLoading && (
-                      <div className="flex items-center gap-2 text-blue-600 mr-8">
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                        <span className="text-sm">Neura is thinking...</span>
+                    {isArtifactLoading && (
+                      <div className="flex items-center gap-2 text-xs text-gray-600">
+                        <Loader2 className="w-3 h-3 animate-spin" />
+                        Neura is thinking...
                       </div>
                     )}
-                    <div ref={messagesEndRef} />
+                    <div ref={artifactMessagesEndRef} />
                   </div>
                 </ScrollArea>
 
-                <div className="p-4 border-t border-blue-100 bg-white/50">
+                <div className="p-4 border-t border-gray-200">
                   <div className="relative">
                     <Textarea
-                      value={input}
-                      onChange={(e) => setInput(e.target.value)}
-                      placeholder="Ask Neura anything about product management..."
-                      className="min-h-[80px] max-h-32 resize-none border-blue-200 focus:ring-2 focus:ring-blue-500 focus:border-transparent pr-20 bg-white"
+                      value={artifactInput}
+                      onChange={(e) => setArtifactInput(e.target.value)}
+                      placeholder="Ask Neura for suggestions..."
+                      className="min-h-[60px] max-h-24 resize-none border-gray-300 focus:ring-gray-500 focus:border-gray-500 pr-12 text-sm"
                       onKeyDown={(e) => {
                         if (e.key === 'Enter' && !e.shiftKey) {
                           e.preventDefault()
-                          sendMessage(input)
+                          sendMessage(artifactInput)
                         }
                       }}
                     />
-                    <div className="absolute right-2 bottom-2 flex items-center gap-2">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-8 w-8 p-0 hover:bg-blue-100"
-                        onClick={() => chatFileInputRef.current?.click()}
-                      >
-                        <Paperclip className="w-4 h-4 text-gray-500" />
-                      </Button>
-                      <Button
-                        size="sm"
-                        onClick={() => sendMessage(input)}
-                        disabled={!input.trim() || isLoading}
-                        className="h-8 w-8 p-0 bg-blue-600 hover:bg-blue-700 rounded"
-                      >
-                        <Send className="w-4 h-4" />
-                      </Button>
-                    </div>
+                    <Button
+                      size="sm"
+                      onClick={() => sendMessage(artifactInput)}
+                      disabled={!artifactInput.trim() || isArtifactLoading}
+                      className="absolute right-2 bottom-2 h-8 w-8 p-0 bg-gray-900 hover:bg-gray-800 rounded"
+                    >
+                      <Send className="w-3 h-3" />
+                    </Button>
                   </div>
-                  <input
-                    ref={chatFileInputRef}
-                    type="file"
-                    accept=".pdf,.txt,.doc,.docx"
-                    className="hidden"
-                    onChange={(e) => {
-                      const file = e.target.files?.[0]
-                      if (file) handleFileUpload(file, "chat")
-                    }}
-                  />
                 </div>
-              </Card>
-            </div>
-          )}
-
-          {/* Background Section */}
-          {activeSection === "background" && (
-            <div className="max-w-4xl mx-auto space-y-6">
-              <div className="text-center mb-8">
-                <h2 className="text-3xl font-bold mb-2 bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">
-                  Background Information
-                </h2>
-                <p className="text-gray-600">Provide context for better AI responses and document generation</p>
               </div>
-
-              <Card className="p-6 border-0 bg-white/70 backdrop-blur-sm border-blue-100">
-                <div className="space-y-6">
-                  <div>
-                    <Label className="text-sm font-medium mb-2 block">Upload Background File</Label>
-                    <div className="flex items-center gap-3">
-                      <Button
-                        variant="outline"
-                        className="bg-white border-blue-200 hover:bg-blue-50"
-                        onClick={() => backgroundFileInputRef.current?.click()}
-                      >
-                        <Upload className="w-4 h-4 mr-2" />
-                        Choose PDF or TXT file
-                      </Button>
-                      {backgroundFileName && <span className="text-sm text-gray-600">{backgroundFileName}</span>}
-                    </div>
-                    <input
-                      ref={backgroundFileInputRef}
-                      type="file"
-                      accept=".pdf,.txt"
-                      className="hidden"
-                      onChange={(e) => {
-                        const file = e.target.files?.[0]
-                        if (file) handleFileUpload(file, "background")
-                      }}
-                    />
-                  </div>
-
-                  <div>
-                    <Label className="text-sm font-medium mb-2 block">Background Text</Label>
-                    <Textarea
-                      value={backgroundText || ""}
-                      onChange={(e) => setBackgroundText(e.target.value)}
-                      placeholder="Describe your company, product, target users, business goals, or any context that will help Neura provide better assistance..."
-                      className="min-h-[200px] border-blue-200 focus:ring-blue-500"
-                    />
-                  </div>
-
-                  <Button onClick={saveBackground} className="w-full bg-blue-600 hover:bg-blue-700">
-                    Save Background Information
-                  </Button>
-                </div>
-              </Card>
-
-              {(backgroundInfo.file || backgroundInfo.text) && (
-                <Card className="p-6 border-0 bg-white/70 backdrop-blur-sm border-blue-100">
-                  <h3 className="font-semibold mb-4 text-gray-900">Current Background</h3>
-                  <div className="bg-blue-50 p-4 rounded-lg">
-                    {backgroundInfo.file && (
-                      <div className="mb-4">
-                        <h4 className="font-medium text-sm mb-2 text-blue-900">File Content:</h4>
-                        <p className="text-sm text-blue-700 whitespace-pre-wrap">
-                          {backgroundInfo.file.substring(0, 500)}...
-                        </p>
-                      </div>
-                    )}
-                    {backgroundInfo.text && (
-                      <div>
-                        <h4 className="font-medium text-sm mb-2 text-blue-900">Text Content:</h4>
-                        <p className="text-sm text-blue-700 whitespace-pre-wrap">{backgroundInfo.text}</p>
-                      </div>
-                    )}
-                  </div>
-                </Card>
-              )}
             </div>
           )}
         </main>
@@ -1262,17 +1185,17 @@ export default function ProductNow() {
                 {filteredTemplates.map((template) => (
                   <Card
                     key={template.id}
-                    className="p-4 hover:shadow-lg transition-all cursor-pointer border border-gray-200 hover:border-blue-300"
+                    className="p-4 hover:shadow-lg transition-all cursor-pointer border-gray-200 hover:border-gray-300"
                     onClick={() => createArtifactFromTemplate(template)}
                   >
                     <div className="flex items-start gap-3">
-                      <div className="w-12 h-12 rounded-lg bg-blue-600 flex items-center justify-center flex-shrink-0">
+                      <div className="w-12 h-12 rounded-lg bg-gray-900 flex items-center justify-center flex-shrink-0">
                         <template.icon className="w-6 h-6 text-white" />
                       </div>
                       <div className="flex-1 min-w-0">
                         <h4 className="font-medium text-gray-900 mb-1">{template.name}</h4>
                         <p className="text-sm text-gray-600 mb-2">{template.description}</p>
-                        <Badge variant="secondary" className="text-xs bg-blue-50 text-blue-700">
+                        <Badge variant="secondary" className="text-xs bg-gray-100 text-gray-700">
                           {template.type.toUpperCase()}
                         </Badge>
                       </div>
